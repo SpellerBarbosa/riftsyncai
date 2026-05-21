@@ -1,0 +1,134 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "spell-coach-ia",
+  "version": "0.1.0",
+  "identifier": "com.spellcoach.ia",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "url": "index.html",
+        "title": "Spell Coach IA",
+        "width": 400,
+        "height": 50,
+        "x": 0,
+        "y": 0,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "resizable": false
+      },
+      {
+        "label": "settings",
+        "url": "index.html",
+        "title": "Configurações",
+        "width": 500,
+        "height": 600,
+        "decorations": false,
+        "transparent": true,
+        "visible": false,
+        "center": true,
+        "shadow": true
+      },
+      {
+        "label": "data-viewer",
+        "url": "index.html",
+        "title": "Visualizador de Dados",
+        "width": 800,
+        "height": 600,
+        "decorations": false,
+        "transparent": true,
+        "visible": false,
+        "center": true,
+        "shadow": true
+      },
+      {
+        "label": "build",
+        "url": "index.html",
+        "title": "Spell Coach Build",
+        "width": 480,
+        "height": 60,
+        "x": 0,
+        "y": 50,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "resizable": false,
+        "visible": false
+      },
+      {
+        "label": "flashcard",
+        "url": "index.html",
+        "title": "Tactical Tip",
+        "width": 340,
+        "height": 160,
+        "x": 1560,
+        "y": 200,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "resizable": false,
+        "visible": false
+      },
+      {
+        "label": "sync-progress",
+        "url": "index.html",
+        "title": "Sincronização",
+        "width": 400,
+        "height": 160,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "resizable": false,
+        "visible": false,
+        "center": true
+      },
+      {
+        "label": "rune-overlay",
+        "url": "index.html",
+        "title": "Spell Coach Rune Overlay",
+        "width": 480,
+        "height": 400,
+        "x": 1420,
+        "y": 380,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "resizable": false,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/SpellerBarbosa/riftsyncai/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgxMDFCNUNCQ0M1NUM2MEQKUldRTnhsWE15N1VCZ2QwQWRMUXdkeklsemZqZkQxdTdRUnpvU2h5L3liU3NMUStmbm5YejlPZ3MK",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

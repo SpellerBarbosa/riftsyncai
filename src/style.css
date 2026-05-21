@@ -1,0 +1,95 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap');
+
+:root {
+  /* Color Palette - Hextech Inspired */
+  --bg-deep: hsl(230, 20%, 8%);
+  --bg-panel: hsla(230, 20%, 12%, 0.8);
+  --accent-gold: hsl(45, 100%, 50%);
+  --accent-gold-glow: hsla(45, 100%, 50%, 0.3);
+  --accent-blue: hsl(190, 100%, 50%);
+  --accent-blue-glow: hsla(190, 100%, 50%, 0.3);
+  --text-primary: hsl(0, 0%, 95%);
+  --text-secondary: hsl(230, 10%, 70%);
+  
+  --glass-border: hsla(0, 0%, 100%, 0.1);
+  --glass-reflection: hsla(0, 0%, 100%, 0.05);
+  
+  --transition-smooth: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-soft: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  background: transparent !important;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Outfit', sans-serif;
+  background: transparent !important;
+  color: var(--text-primary);
+  overflow: hidden;
+  user-select: none;
+}
+
+#app {
+  height: auto;
+  background: transparent !important;
+}
+
+/* Glassmorphism Utilities */
+.glass {
+  background: var(--bg-panel);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+}
+
+.glass-card {
+  background: linear-gradient(135deg, var(--glass-reflection), transparent);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: var(--transition-smooth);
+}
+
+.glass-card:hover {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 20px var(--accent-blue-glow);
+  transform: translateY(-2px);
+}
+
+/* Animations */
+@keyframes glow-pulse {
+  0% { box-shadow: 0 0 5px var(--accent-blue-glow); }
+  50% { box-shadow: 0 0 20px var(--accent-blue-glow); }
+  100% { box-shadow: 0 0 5px var(--accent-blue-glow); }
+}
+
+.animate-glow {
+  animation: glow-pulse 3s infinite ease-in-out;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--glass-border);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-blue);
+}

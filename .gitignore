@@ -1,0 +1,44 @@
+# ── Dependências ──────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Build outputs ─────────────────────────────────────────────────────────────
+dist/
+src-tauri/target/
+
+# ── Segredos (NUNCA commitar) ─────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.p12
+*.pfx
+# Pasta de chaves gerada localmente (~ não expandiu no PowerShell)
+~/.tauri/
+
+# ── Tauri — schemas gerados automaticamente ───────────────────────────────────
+src-tauri/gen/schemas/
+
+# ── Claude Code (configurações locais do agente) ─────────────────────────────
+.claude/settings.local.json
+.claude/memory/
+
+# ── Editor ────────────────────────────────────────────────────────────────────
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.suo
+*.user
+*.swp
+
+# ── Arquivos de dev temporários ───────────────────────────────────────────────
+src-tauri/errors.txt
+vercel_meta_test.json
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+Thumbs.db
+.DS_Store
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*

@@ -1,0 +1,53 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\bemar\\\\Documents\\\\Projetos\\\\spell_coach_ia\" -Recurse -Directory)",
+      "PowerShell(ls -Path \"c:\\\\Users\\\\bemar\\\\Documents\\\\Projetos\\\\spell_coach_ia\" -Recurse -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq \"src\" -or $_.Name -eq \"src-tauri\" } | Select-Object FullName)",
+      "Bash(awk -F: '{print $1, $2}')",
+      "Bash(New-Item -ItemType Directory -Force \"C:\\\\Users\\\\bemar\\\\Documents\\\\Projetos\\\\spell_coach_ia\\\\src-tauri\\\\src\\\\live_coach\")",
+      "Bash(Out-Null)",
+      "Bash(Write-Host \"Diretorio criado\")",
+      "Bash(grep -n \"^pub fn\\\\|^fn \\\\|^async fn\\\\|^pub async fn\\\\|^pub struct\\\\|^struct \\\\|^pub enum\\\\|^enum \\\\|^impl \\\\|^// ---\\\\|^// ===\\\\|^//\" \"c:/Users/bemar/Documents/Projetos/spell_coach_ia/src-tauri/src/bridge.rs\")",
+      "Bash(New-Item -ItemType Directory -Force \"C:\\\\Users\\\\bemar\\\\Documents\\\\Projetos\\\\spell_coach_ia\\\\src-tauri\\\\src\\\\bridge\")",
+      "Bash(Write-Host \"Directory created\")",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\bemar\\\\Documents\\\\Projetos\\\\spell_coach_ia\\\\src-tauri\\\\src\" -Recurse -File)",
+      "Bash(Sort-Object LastWriteTime -Descending)",
+      "Bash(Select-Object -First 20)",
+      "Bash(Format-Table Name, LastWriteTime, FullName -AutoSize)",
+      "Bash(curl -s \"https://spellcoachapiv2-bxyh.vercel.app/api/stats/champions?elo=DIAMOND&role=MID\" -H \"x-api-key: AIzaSyCWGApDVrzkHLKyTo6LC4gtL7MdA05YRM8\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); champs=d['data'][:3]; [print\\(json.dumps\\(c, indent=2\\)\\) for c in champs]\")",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const r=JSON.parse\\(d\\);console.log\\('total:',r.data.length\\);console.log\\('sample:',JSON.stringify\\(r.data[0],null,2\\)\\);}\\)\")",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const r=JSON.parse\\(d\\);const withBuilds=r.data.filter\\(c=>c.coreBuild&&c.coreBuild.length>0\\);console.log\\('com coreBuild:',withBuilds.length\\);if\\(withBuilds[0]\\)console.log\\(JSON.stringify\\(withBuilds[0]\\)\\);}\\);\")",
+      "Read(//c/Users/bemar/**)",
+      "Bash(sqlite3 C:/Users/bemar/AppData/Roaming/com.spellcoach.ia/spell_coach_v2.db ' *)",
+      "PowerShell(node -e \"try{require\\('better-sqlite3'\\);console.log\\('ok'\\)}catch\\(e\\){console.log\\('nao tem:',e.message\\)}\" 2>$null)",
+      "Bash(node -e ' *)",
+      "Bash(curl -s \"https://spellcoachapiv2-bxyh.vercel.app/api/stats/champion/details?championId=103&role=MID&elo=DIAMOND\" -H \"x-api-key: AIzaSyCWGApDVrzkHLKyTo6LC4gtL7MdA05YRM8\")",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const r=JSON.parse\\(d\\);const data=r.data;console.log\\('skillOrder:', JSON.stringify\\(data.skillOrder\\)\\);console.log\\('wards count:', data.wards ? data.wards.length : 'null'\\);console.log\\('ward sample:', JSON.stringify\\(data.wards && data.wards[0]\\)\\);}\\);\")",
+      "Bash(rm \"C:/Users/bemar/AppData/Roaming/com.spellcoach.ia/spell_coach_v2.db\" && echo \"Deletado.\")",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\bemar\\\\Documents\\\\Projetos\\\\spell_coach_ia\\\\src-tauri\\\\src\" -Recurse -File -Filter \"*.rs\")",
+      "Bash(Sort-Object)",
+      "Bash(curl -s \"https://spellcoachapiv2-bxyh.vercel.app/api/stats/matchup?championAId=103&championBId=157\" -H \"x-api-key: AIzaSyCWGApDVrzkHLKyTo6LC4gtL7MdA05YRM8\")",
+      "Bash(curl -s \"https://spellcoachapiv2-bxyh.vercel.app/api/stats/matchup?championAId=103&championBId=238\" -H \"x-api-key: AIzaSyCWGApDVrzkHLKyTo6LC4gtL7MdA05YRM8\")",
+      "Bash(dir /s /b \"c:\\\\Users\\\\bemar\\\\Documents\\\\Projetos\\\\spell_coach_ia\")",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\bemar\\\\Documents\\\\Projetos\\\\spell_coach_ia\" -Recurse -File | Where-Object { $_.FullName -notmatch 'target|node_modules|\\\\.git' } | Select-Object -ExpandProperty FullName | head -150)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\bemar\\\\Documents\\\\Projetos\\\\spell_coach_ia\" -Recurse -File | Where-Object { $_.FullName -notmatch 'target|node_modules|\\\\.git' } | Select-Object -ExpandProperty FullName | Select-Object -First 150)",
+      "Bash(npx tsc *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\bemar\\\\Documents\\\\Projetos\\\\spell_coach_ia\" -Force)",
+      "Bash(Select-Object Name, FullName)",
+      "PowerShell(Test-Path \"c:\\\\Users\\\\bemar\\\\Documents\\\\Projetos\\\\spell_coach_ia\\\\src-tauri\\\\icons\" ; \\(ls -ErrorAction SilentlyContinue \"c:\\\\Users\\\\bemar\\\\Documents\\\\Projetos\\\\spell_coach_ia\\\\src-tauri\\\\icons\" | Select-Object Name\\))",
+      "PowerShell(Test-Path \"c:\\\\Users\\\\bemar\\\\Documents\\\\Projetos\\\\spell_coach_ia\\\\src-tauri\\\\capabilities\" ; \\(ls -ErrorAction SilentlyContinue \"c:\\\\Users\\\\bemar\\\\Documents\\\\Projetos\\\\spell_coach_ia\\\\src-tauri\\\\capabilities\" | Select-Object Name\\))",
+      "PowerShell(Test-Path \"c:\\\\Users\\\\bemar\\\\Documents\\\\Projetos\\\\spell_coach_ia\\\\src-tauri\\\\gen\" ; \\(ls -ErrorAction SilentlyContinue \"c:\\\\Users\\\\bemar\\\\Documents\\\\Projetos\\\\spell_coach_ia\\\\src-tauri\\\\gen\" | Select-Object Name\\))",
+      "Bash(Test-Path \"c:\\\\Users\\\\bemar\\\\Documents\\\\Projetos\\\\spell_coach_ia\\\\.gitignore\")",
+      "Bash(git init *)",
+      "Bash(git check-ignore *)",
+      "Bash(git add *)",
+      "Bash(git rm *)",
+      "Bash(git commit -m ' *)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\bemar\\AppData\\Roaming\\com.spellcoach.ia"
+    ]
+  }
+}
