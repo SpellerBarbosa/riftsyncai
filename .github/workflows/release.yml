@@ -65,5 +65,5 @@ jobs:
             ### Instalação
             Baixe o arquivo `.exe` abaixo e execute. O app atualiza automaticamente nas próximas versões.
           releaseDraft: false
-          prerelease: false
+          prerelease: ${{ startsWith(github.ref_name, 'v0.') }}
           includeUpdaterJson: true   # gera latest.json para o auto-updater
