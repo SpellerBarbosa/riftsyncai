@@ -166,7 +166,7 @@ pub async fn get_recommended_builds_command(
     if builds.is_empty() {
         builds = if let Some(ref r) = mapped_role {
             sqlx::query_as::<_, RecommendedBuild>(
-                "SELECT * FROM recommended_builds WHERE champion_id = ? ORDER BY (CASE WHEN role = ? THEN 0 ELSE 1 END), id DESC"
+                "SELECT * FROM recommended_builds WHERE champion_id = ? AND elo = 'CHALLENGER' ORDER BY (CASE WHEN role = ? THEN 0 ELSE 1 END), id DESC"
             )
             .bind(&resolved_id)
             .bind(r)
@@ -175,7 +175,7 @@ pub async fn get_recommended_builds_command(
             .unwrap_or_default()
         } else {
             sqlx::query_as::<_, RecommendedBuild>(
-                "SELECT * FROM recommended_builds WHERE champion_id = ? ORDER BY id DESC"
+                "SELECT * FROM recommended_builds WHERE champion_id = ? AND elo = 'CHALLENGER' ORDER BY id DESC"
             )
             .bind(&resolved_id)
             .fetch_all(pool)
@@ -191,7 +191,7 @@ pub async fn get_recommended_builds_command(
             let _ = crate::ddragon::get_ddragon_champion_details_internal(pool, &version, crate::config::DEFAULT_LANG, &resolved_id).await;
             builds = if let Some(ref r) = mapped_role {
                 sqlx::query_as::<_, RecommendedBuild>(
-                    "SELECT * FROM recommended_builds WHERE champion_id = ? ORDER BY (CASE WHEN role = ? THEN 0 ELSE 1 END), id DESC"
+                    "SELECT * FROM recommended_builds WHERE champion_id = ? AND elo = 'CHALLENGER' ORDER BY (CASE WHEN role = ? THEN 0 ELSE 1 END), id DESC"
                 )
                 .bind(&resolved_id)
                 .bind(r)
@@ -200,7 +200,7 @@ pub async fn get_recommended_builds_command(
                 .unwrap_or_default()
             } else {
                 sqlx::query_as::<_, RecommendedBuild>(
-                    "SELECT * FROM recommended_builds WHERE champion_id = ? ORDER BY id DESC"
+                    "SELECT * FROM recommended_builds WHERE champion_id = ? AND elo = 'CHALLENGER' ORDER BY id DESC"
                 )
                 .bind(&resolved_id)
                 .fetch_all(pool)
@@ -657,7 +657,7 @@ pub async fn get_champion_meta_from_db(
     type Row = (Option<String>, Option<String>, Option<i64>, Option<String>);
     let row: Option<Row> = sqlx::query_as::<_, Row>(
         "SELECT skill_order_json, jungle_path, first_item_time_ms, starting_items_json
-         FROM recommended_builds WHERE champion_id = ? AND role = ?"
+         FROM recommended_builds WHERE champion_id = ? AND role = ? AND elo = 'CHALLENGER'"
     )
     .bind(champion_id)
     .bind(role)
@@ -690,7 +690,7 @@ pub struct WardPoint {
 }
 
 /// Retorna os pontos de ward mais comuns para o campeão/role no momento atual.
-/// Filtra por janela de tempo similar à da partida atual (±3 min).
+/// Usa SEMPRE dados Diamond/Challenger — referência de alto nível para ensinar progressão.
 /// Agrupa coordenadas em buckets de 700u para reduzir pontos redundantes.
 pub async fn get_ward_suggestions(
     pool: &Pool<Sqlite>,
@@ -698,65 +698,33 @@ pub async fn get_ward_suggestions(
     role: &str,
     game_time_secs: f64,
 ) -> Vec<WardPoint> {
-    // Janela de tempo ±3 minutos ao redor do tempo atual
     let window_ms_min = ((game_time_secs - 180.0).max(0.0) * 1000.0) as i64;
     let window_ms_max = ((game_time_secs + 180.0) * 1000.0) as i64;
 
-    // Agrupa wards em células de 700 unidades para eliminar sobreposições
-    // e ordena pelo número de ocorrências (mais frequente = maior prioridade)
     type Row = (i64, i64, i64);
     let rows: Vec<Row> = sqlx::query_as::<_, Row>(
-        "SELECT
-            (x_coord / 700) * 700 + 350  AS bx,
-            (y_coord / 700) * 700 + 350  AS by,
-            COUNT(*)                      AS cnt
+        "SELECT (x_coord/700)*700+350 AS bx, (y_coord/700)*700+350 AS by, COUNT(*) AS cnt
          FROM ward_heatmaps
-         WHERE champion_id = ?
-           AND role        = ?
-           AND elo         = 'DIAMOND'
-           AND (placed_at_ms IS NULL
-                OR (placed_at_ms BETWEEN ? AND ?))
-         GROUP BY bx, by
-         ORDER BY cnt DESC
-         LIMIT 8"
+         WHERE champion_id=? AND role=? AND elo='HIGH_ELO'
+           AND (placed_at_ms IS NULL OR placed_at_ms BETWEEN ? AND ?)
+         GROUP BY bx, by ORDER BY cnt DESC LIMIT 8"
     )
-    .bind(champion_id)
-    .bind(role)
-    .bind(window_ms_min)
-    .bind(window_ms_max)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
+    .bind(champion_id).bind(role).bind(window_ms_min).bind(window_ms_max)
+    .fetch_all(pool).await.unwrap_or_default();
 
-    if rows.is_empty() {
-        // Fallback sem filtro de tempo se não houver dados com placed_at_ms
-        let fallback: Vec<Row> = sqlx::query_as::<_, Row>(
-            "SELECT
-                (x_coord / 700) * 700 + 350 AS bx,
-                (y_coord / 700) * 700 + 350 AS by,
-                COUNT(*)                     AS cnt
+    let rows = if rows.is_empty() {
+        sqlx::query_as::<_, Row>(
+            "SELECT (x_coord/700)*700+350 AS bx, (y_coord/700)*700+350 AS by, COUNT(*) AS cnt
              FROM ward_heatmaps
-             WHERE champion_id = ? AND role = ? AND elo = 'DIAMOND'
-             GROUP BY bx, by
-             ORDER BY cnt DESC
-             LIMIT 8"
+             WHERE champion_id=? AND role=? AND elo='HIGH_ELO'
+             GROUP BY bx, by ORDER BY cnt DESC LIMIT 8"
         )
-        .bind(champion_id)
-        .bind(role)
-        .fetch_all(pool)
-        .await
-        .unwrap_or_default();
-
-        let max_cnt = fallback.first().map(|(_, _, c)| *c).unwrap_or(1).max(1);
-        return fallback.into_iter().enumerate().map(|(i, (x, y, cnt))| {
-            let priority = (5 - (cnt * 4 / max_cnt).min(4)) as i32;
-            WardPoint { x, y, priority: priority.max(1).min(5) + i as i32 / 3 }
-        }).collect();
-    }
+        .bind(champion_id).bind(role)
+        .fetch_all(pool).await.unwrap_or_default()
+    } else { rows };
 
     let max_cnt = rows.first().map(|(_, _, c)| *c).unwrap_or(1).max(1);
     rows.into_iter().enumerate().map(|(i, (x, y, cnt))| {
-        // Prioridade 1 = mais frequente, 5 = menos frequente
         let priority = (5 - (cnt * 4 / max_cnt).min(4)) as i32;
         WardPoint { x, y, priority: priority.max(1).min(5) + i as i32 / 3 }
     }).collect()
@@ -767,6 +735,7 @@ pub async fn get_ward_suggestions(
 ///   - janela de tempo ±90s ao redor do spawn do objetivo
 ///   - bounding box de coordenadas em torno da área do objetivo
 /// Fallback: se não houver dados na área, usa a query geral sem filtro geográfico.
+/// Wards pré-objetivo: sempre Diamond/Challenger — ensina posicionamento de alto nível.
 pub async fn get_ward_suggestions_for_objective(
     pool: &Pool<Sqlite>,
     champion_id: &str,
@@ -780,51 +749,30 @@ pub async fn get_ward_suggestions_for_objective(
 
     type Row = (i64, i64, i64);
     let rows: Vec<Row> = sqlx::query_as::<_, Row>(
-        "SELECT
-            (x_coord / 700) * 700 + 350 AS bx,
-            (y_coord / 700) * 700 + 350 AS by,
-            COUNT(*)                     AS cnt
+        "SELECT (x_coord/700)*700+350 AS bx, (y_coord/700)*700+350 AS by, COUNT(*) AS cnt
          FROM ward_heatmaps
-         WHERE champion_id = ?
-           AND role        = ?
-           AND elo         = 'DIAMOND'
-           AND (placed_at_ms IS NULL OR (placed_at_ms BETWEEN ? AND ?))
-           AND x_coord BETWEEN ? AND ?
-           AND y_coord BETWEEN ? AND ?
-         GROUP BY bx, by
-         ORDER BY cnt DESC
-         LIMIT 8"
+         WHERE champion_id=? AND role=? AND elo='HIGH_ELO'
+           AND (placed_at_ms IS NULL OR placed_at_ms BETWEEN ? AND ?)
+           AND x_coord BETWEEN ? AND ? AND y_coord BETWEEN ? AND ?
+         GROUP BY bx, by ORDER BY cnt DESC LIMIT 8"
     )
     .bind(champion_id).bind(role)
     .bind(window_ms_min).bind(window_ms_max)
-    .bind(x_min).bind(x_max)
-    .bind(y_min).bind(y_max)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
+    .bind(x_min).bind(x_max).bind(y_min).bind(y_max)
+    .fetch_all(pool).await.unwrap_or_default();
 
-    // Fallback: sem filtro geográfico — usa janela de tempo global
     let source = if rows.is_empty() {
         sqlx::query_as::<_, Row>(
-            "SELECT
-                (x_coord / 700) * 700 + 350 AS bx,
-                (y_coord / 700) * 700 + 350 AS by,
-                COUNT(*)                     AS cnt
+            "SELECT (x_coord/700)*700+350 AS bx, (y_coord/700)*700+350 AS by, COUNT(*) AS cnt
              FROM ward_heatmaps
-             WHERE champion_id = ? AND role = ? AND elo = 'DIAMOND'
-               AND (placed_at_ms IS NULL OR (placed_at_ms BETWEEN ? AND ?))
-             GROUP BY bx, by
-             ORDER BY cnt DESC
-             LIMIT 8"
+             WHERE champion_id=? AND role=? AND elo='HIGH_ELO'
+               AND (placed_at_ms IS NULL OR placed_at_ms BETWEEN ? AND ?)
+             GROUP BY bx, by ORDER BY cnt DESC LIMIT 8"
         )
         .bind(champion_id).bind(role)
         .bind(window_ms_min).bind(window_ms_max)
-        .fetch_all(pool)
-        .await
-        .unwrap_or_default()
-    } else {
-        rows
-    };
+        .fetch_all(pool).await.unwrap_or_default()
+    } else { rows };
 
     let max_cnt = source.first().map(|(_, _, c)| *c).unwrap_or(1).max(1);
     source.into_iter().enumerate().map(|(i, (x, y, cnt))| {

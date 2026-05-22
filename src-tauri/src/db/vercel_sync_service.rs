@@ -11,7 +11,7 @@ use tokio::sync::Semaphore;
 const API_BASE: &str = "https://spellcoachapiv2-bxyh.vercel.app";
 // "ALL" removido — query sem filtro de elo é a mais pesada e os dados são redundantes
 const ELOS: &[&str] = &["IRON","BRONZE","SILVER","GOLD","PLATINUM","EMERALD","DIAMOND","MASTER","GRANDMASTER","CHALLENGER"];
-const ROLES: &[&str] = &["TOP","JUNGLE","MID","ADC","SUPPORT"];
+const ROLES: &[&str] = &["TOP","JUNGLE","MID","ADC","UTILITY"];
 const DETAIL_LIMIT_PER_ROLE: usize = 25;
 // Concorrência reduzida para não sobrecarregar o PostgreSQL do Vercel
 const META_CONCURRENCY: usize = 4;
@@ -180,40 +180,61 @@ async fn fetch_json<T: for<'de> Deserialize<'de>>(
     url: &str,
     token: &str,
 ) -> Option<T> {
-    // Backoff progressivo para 5xx: 3s, 8s, 15s, 20s
-    const SERVER_ERROR_DELAYS: &[u64] = &[3000, 8000, 15000, 20000];
+    // A API pode retornar HTTP 5xx com body JSON válido (bug no servidor Vercel).
+    // Por isso tentamos parsear o body independente do status code.
+    // Só retentamos se o body for inválido/vazio (cold start real).
+    const SERVER_ERROR_DELAYS: &[u64] = &[2000, 5000, 10000, 15000];
+
     for attempt in 1..=5u8 {
-        match client.get(url)
+        let resp = client.get(url)
             .header("x-api-key", token)
             .header("User-Agent", "SpellCoachIA/2.0")
-            .send().await
-        {
-            Ok(r) if r.status().is_success() => {
-                match r.text().await {
-                    Ok(body) => match serde_json::from_str::<T>(&body) {
-                        Ok(data) => return Some(data),
-                        Err(e) => println!("[Sync] Parse error {}: {}\nRaw: {}", url, e, &body[..body.len().min(500)]),
-                    },
-                    Err(e) => println!("[Sync] Body error {}: {}", url, e),
-                }
-            }
+            .send().await;
+
+        match resp {
             Ok(r) => {
                 let status = r.status();
-                println!("[Sync] HTTP {} tentativa {}/{}: {}", status, attempt, 5, url);
-                if attempt < 5 {
-                    let delay = if status.is_server_error() {
-                        SERVER_ERROR_DELAYS[(attempt as usize - 1).min(SERVER_ERROR_DELAYS.len() - 1)]
-                    } else {
-                        1000
-                    };
-                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                match r.text().await {
+                    Ok(body) => {
+                        // Tenta parsear o body independente do HTTP status
+                        match serde_json::from_str::<T>(&body) {
+                            Ok(data) => {
+                                if !status.is_success() {
+                                    println!("[Sync] HTTP {} com dados válidos — usando. ({})", status, url);
+                                }
+                                return Some(data);
+                            }
+                            Err(_) => {
+                                // Body inválido: pode ser cold start real
+                                if status.as_u16() == 404 {
+                                    println!("[Sync] 404 — endpoint não existe: {}", url);
+                                    return None;
+                                }
+                                if attempt < 5 {
+                                    println!("[Sync] HTTP {} body inválido, tentativa {}/5: {}", status, attempt, url);
+                                    let delay = SERVER_ERROR_DELAYS[(attempt as usize - 1).min(SERVER_ERROR_DELAYS.len() - 1)];
+                                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("[Sync] Erro ao ler body tentativa {}/5 ({}): {}", attempt, url, e);
+                        if attempt < 5 {
+                            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                        }
+                    }
                 }
-                continue;
             }
-            Err(e) => println!("[Sync] Net error tentativa {}: {}", attempt, e),
+            Err(e) => {
+                println!("[Sync] Net error tentativa {}/5 ({}): {}", attempt, url, e);
+                if attempt < 5 {
+                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                }
+            }
         }
-        if attempt < 5 { tokio::time::sleep(std::time::Duration::from_millis(1000)).await; }
     }
+    println!("[Sync] Falhou após 5 tentativas — sem dados para: {}", url);
     None
 }
 
@@ -349,7 +370,7 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
                             let slug = champ_map.get(&num_id).cloned()
                                 .unwrap_or_else(|| format!("Champion{}", num_id));
                             let champ_elo = cs.elo.clone()
-                                .unwrap_or_else(|| "GLOBAL".to_string()).to_uppercase();
+                                .unwrap_or_else(|| elo.clone()).to_uppercase();
                             let mapped_role = map_role(cs.role.as_deref().unwrap_or(&role)).to_string();
                             let tier = cs.tier.as_deref().unwrap_or("B").to_string();
 
@@ -477,15 +498,17 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
         }
     }
 
+    // Fase 2: detalhes de CHALLENGER — builds, runas e skills com maior win rate.
+    // Wards também de CHALLENGER — referência de alto nível para ensinar progressão.
     let detail_targets: Vec<(String, String, i32)> = detail_map.into_iter()
         .flat_map(|(role, champs)| champs.into_iter().map(move |(slug, id)| (slug, role.clone(), id)))
         .collect();
     let total_details = detail_targets.len();
-    println!("[Sync] Fase 2: {} chamadas de detalhe (max {} por role).", total_details, DETAIL_LIMIT_PER_ROLE);
-
-    let sem_det = Arc::new(Semaphore::new(DETAIL_CONCURRENCY));
     let det_done = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let sem_det = Arc::new(Semaphore::new(DETAIL_CONCURRENCY));
     let mut det_tasks = Vec::with_capacity(total_details);
+
+    println!("[Sync] Fase 2: {} chamadas de detalhe (CHALLENGER).", total_details);
 
     for (slug, role, num_id) in detail_targets {
         let permit = sem_det.clone().acquire_owned().await.map_err(|e| e.to_string())?;
@@ -496,7 +519,7 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
 
         det_tasks.push(tokio::spawn(async move {
             let _permit = permit;
-            let url = format!("{}/api/stats/champion/details?championId={}&role={}&elo=DIAMOND",
+            let url = format!("{}/api/stats/champion/details?championId={}&role={}&elo=CHALLENGER",
                 API_BASE, num_id, role);
             let detail: Option<ApiChampionDetails> = fetch_single(&client, &url, &token).await;
 
@@ -506,29 +529,26 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
                 emit(app_handle.as_ref(), pct.min(94),
                     &format!("Detalhes: {}/{}", n, total_details), false);
             }
-
             (slug, role, detail)
         }));
     }
 
-    // Coleta e persiste em transação
-    let mut detail_results: Vec<(String, String, ApiChampionDetails)> = Vec::new();
+    let mut detail_results: Vec<(String, String, String, ApiChampionDetails)> = Vec::new();
     for task in det_tasks {
         if let Ok((slug, role, Some(d))) = task.await {
-            detail_results.push((slug, role, d));
+            detail_results.push((slug, role, "CHALLENGER".to_string(), d));
         }
     }
     println!("[Sync] Fase 2 completa: {}/{} detalhes obtidos.", detail_results.len(), total_details);
 
-    // Commit detalhes em transação
     emit(app, 95, "Salvando detalhes e wards no banco...", false);
     {
         let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
-        for (slug, role, d) in &detail_results {
+        for (slug, role, elo, d) in &detail_results {
             let starting  = d.starting_items.as_ref().filter(|v| !v.is_empty())
                 .map(|v| serde_json::to_string(v).unwrap_or_default());
-            let spells: Option<String> = None; // not in v2 API
+            let spells: Option<String> = None;
             let skill_ord = d.skill_order.as_ref().filter(|v| !v.is_empty())
                 .map(|v| {
                     let names: Vec<&str> = v.iter().map(|&i| match i {
@@ -536,7 +556,6 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
                     }).collect();
                     serde_json::to_string(&names).unwrap_or_default()
                 });
-            // detail runes: flat array [primary(0), keystone(1), rows1-3(2-4), secondary(5), sub(6-7), shards(8-10)]
             let runes_det = d.runes.as_ref().filter(|r| r.len() >= 6).map(|r| {
                 let primary = r[0];
                 let secondary = r[5];
@@ -549,33 +568,46 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
                     "runes": all_runes, "shards": shards
                 })).unwrap_or_default()
             });
-            let core      = d.core_build.as_ref().filter(|v| !v.is_empty())
+            let core = d.core_build.as_ref().filter(|v| !v.is_empty())
                 .map(|v| serde_json::to_string(v).unwrap_or_default());
 
-            let mut sets = Vec::new();
-            if starting.is_some()          { sets.push("starting_items_json = ?"); }
-            if spells.is_some()            { sets.push("summoner_spells_json = ?"); }
-            if skill_ord.is_some()         { sets.push("skill_order_json = ?"); }
-            if runes_det.is_some()         { sets.push("runes_json = ?"); }
-            if core.is_some()              { sets.push("items_json = ?"); }
-            if d.jungle_path.is_some()     { sets.push("jungle_path = ?"); }
+            // Upsert recommended_builds com ELO
+            if starting.is_some() || skill_ord.is_some() || runes_det.is_some()
+                || core.is_some() || d.jungle_path.is_some()
+            {
+                let _ = sqlx::query(
+                    "INSERT OR IGNORE INTO recommended_builds (champion_id, role, elo, is_core)
+                     VALUES (?, ?, ?, 1)"
+                ).bind(slug).bind(role).bind(elo).execute(&mut *tx).await;
 
-            if !sets.is_empty() {
-                let q = format!("UPDATE recommended_builds SET {} WHERE champion_id = ? AND role = ?",
-                    sets.join(", "));
-                let mut query = sqlx::query(&q);
-                if let Some(ref v) = starting  { query = query.bind(v); }
-                if let Some(ref v) = spells    { query = query.bind(v); }
-                if let Some(ref v) = skill_ord { query = query.bind(v); }
-                if let Some(ref v) = runes_det { query = query.bind(v); }
-                if let Some(ref v) = core      { query = query.bind(v); }
-                if let Some(ref v) = d.jungle_path { query = query.bind(v); }
-                if let Err(e) = query.bind(slug).bind(role).execute(&mut *tx).await {
-                    eprintln!("[Sync] recommended_builds update error ({}:{}): {}", slug, role, e);
+                let mut sets = Vec::new();
+                if starting.is_some()      { sets.push("starting_items_json = ?"); }
+                if spells.is_some()        { sets.push("summoner_spells_json = ?"); }
+                if skill_ord.is_some()     { sets.push("skill_order_json = ?"); }
+                if runes_det.is_some()     { sets.push("runes_json = ?"); }
+                if core.is_some()          { sets.push("items_json = ?"); }
+                if d.jungle_path.is_some() { sets.push("jungle_path = ?"); }
+
+                if !sets.is_empty() {
+                    let q = format!(
+                        "UPDATE recommended_builds SET {} WHERE champion_id=? AND role=? AND elo=?",
+                        sets.join(", ")
+                    );
+                    let mut query = sqlx::query(&q);
+                    if let Some(ref v) = starting  { query = query.bind(v); }
+                    if let Some(ref v) = spells    { query = query.bind(v); }
+                    if let Some(ref v) = skill_ord { query = query.bind(v); }
+                    if let Some(ref v) = runes_det { query = query.bind(v); }
+                    if let Some(ref v) = core      { query = query.bind(v); }
+                    if let Some(ref v) = d.jungle_path { query = query.bind(v); }
+                    if let Err(e) = query.bind(slug).bind(role).bind(elo).execute(&mut *tx).await {
+                        eprintln!("[Sync] recommended_builds update error ({}:{}:{}): {}", slug, role, elo, e);
+                    }
                 }
             }
 
-            // Ward heatmap — INSERT em batch VALUES
+            // Wards: apex tiers combinados (CHALLENGER+GRANDMASTER+MASTER) via API
+            // Armazenado como 'HIGH_ELO' para desacoplar do ELO específico
             let wards = d.wards.as_deref().unwrap_or(&[]);
             let valid_wards: Vec<(i64, i64)> = wards.iter()
                 .filter_map(|w| Some((w.x? as i64, w.y? as i64)))
@@ -583,12 +615,11 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
 
             if !valid_wards.is_empty() {
                 let _ = sqlx::query(
-                    "DELETE FROM ward_heatmaps WHERE champion_id = ? AND role = ? AND elo = 'DIAMOND'"
+                    "DELETE FROM ward_heatmaps WHERE champion_id = ? AND role = ? AND elo = 'HIGH_ELO'"
                 ).bind(slug).bind(role).execute(&mut *tx).await;
 
-                // Batch insert todas as wards de uma vez (VALUES multi-row)
                 let placeholders = valid_wards.iter()
-                    .map(|_| "(?, ?, 'DIAMOND', ?, ?)").collect::<Vec<_>>().join(",");
+                    .map(|_| "(?, ?, 'HIGH_ELO', ?, ?)").collect::<Vec<_>>().join(",");
                 let q = format!("INSERT INTO ward_heatmaps (champion_id, role, elo, x_coord, y_coord) VALUES {}", placeholders);
                 let mut query = sqlx::query(&q);
                 for (x, y) in &valid_wards {
@@ -598,11 +629,11 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
                     eprintln!("[Sync] ward_heatmaps insert error ({}:{}): {}", slug, role, e);
                 }
             }
-        }
+        } // for detail_results
 
         tx.commit().await.map_err(|e| e.to_string())?;
         println!("[Sync] Fase 2 commitada.");
-    }
+    } // tx block
 
     // ── FASE 3: Matchups DIAMOND ──────────────────────────────────────────────
     emit(app, 96, "Coletando pares de matchup DIAMOND...", false);
@@ -714,4 +745,73 @@ pub async fn sync_vercel_command(
     app: AppHandle,
 ) -> Result<(), String> {
     sync_vercel_data(&state.0, Some(&app)).await
+}
+
+/// Força sincronização ignorando o cache de 2h — útil para diagnóstico e após updates.
+#[tauri::command]
+pub async fn force_sync_vercel_command(
+    state: State<'_, crate::db::DbState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    sqlx::query("DELETE FROM sync_metadata WHERE key = 'vercel_last_sync'")
+        .execute(&state.0)
+        .await
+        .map_err(|e| e.to_string())?;
+    println!("[Sync] Cache invalidado — forçando sincronização completa.");
+    sync_vercel_data(&state.0, Some(&app)).await
+}
+
+/// Retorna um resumo de quantos registros existem no banco por ELO e tabela.
+/// Permite verificar exatamente quais ELOs foram populados com sucesso.
+#[tauri::command]
+pub async fn get_sync_coverage(
+    state: State<'_, crate::db::DbState>,
+) -> Result<serde_json::Value, String> {
+    let pool = &state.0;
+
+    // Contagem por ELO na blitz_tier_list (picks/bans)
+    let tier_rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT elo, COUNT(*) FROM blitz_tier_list GROUP BY elo ORDER BY elo"
+    ).fetch_all(pool).await.unwrap_or_default();
+
+    // Contagem por ELO nos matchups
+    let matchup_rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT elo, COUNT(*) FROM matchups GROUP BY elo ORDER BY elo"
+    ).fetch_all(pool).await.unwrap_or_default();
+
+    // Contagem por ELO nos recommended_builds
+    let build_rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT elo, COUNT(*) FROM recommended_builds GROUP BY elo ORDER BY elo"
+    ).fetch_all(pool).await.unwrap_or_default();
+
+    // Contagem de wards (apenas CHALLENGER)
+    let ward_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM ward_heatmaps WHERE elo = 'HIGH_ELO'"
+    ).fetch_one(pool).await.unwrap_or(0);
+
+    // Total de campeões com dados
+    let champ_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT champion_id) FROM blitz_tier_list"
+    ).fetch_one(pool).await.unwrap_or(0);
+
+    let tier_map: serde_json::Value = tier_rows.iter()
+        .map(|(e, c)| (e.clone(), serde_json::json!(c)))
+        .collect::<serde_json::Map<_, _>>()
+        .into();
+    let matchup_map: serde_json::Value = matchup_rows.iter()
+        .map(|(e, c)| (e.clone(), serde_json::json!(c)))
+        .collect::<serde_json::Map<_, _>>()
+        .into();
+    let build_map: serde_json::Value = build_rows.iter()
+        .map(|(e, c)| (e.clone(), serde_json::json!(c)))
+        .collect::<serde_json::Map<_, _>>()
+        .into();
+
+    Ok(serde_json::json!({
+        "champions_with_data": champ_count,
+        "tier_list_por_elo": tier_map,
+        "matchups_por_elo": matchup_map,
+        "builds_por_elo": build_map,
+        "wards_challenger": ward_count,
+    }))
 }
