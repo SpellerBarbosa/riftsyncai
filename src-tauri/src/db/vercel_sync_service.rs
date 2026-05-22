@@ -25,7 +25,7 @@ const MIN_MATCHUP_GAMES: i64 = 50;
 #[derive(Debug, Deserialize)]
 struct ApiListResponse<T> { data: Vec<T> }
 #[derive(Debug, Deserialize)]
-struct ApiSingleResponse<T> { data: T }
+struct ApiSingleResponse<T> { data: Option<T> }
 
 // winRate/pickRate/banRate are percentage strings ("52.0") in v2 API
 fn deser_rate<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<f64>, D::Error> {
@@ -243,7 +243,7 @@ async fn fetch_list<T: for<'de> Deserialize<'de>>(client: &Client, url: &str, to
 }
 
 async fn fetch_single<T: for<'de> Deserialize<'de>>(client: &Client, url: &str, token: &str) -> Option<T> {
-    fetch_json::<ApiSingleResponse<T>>(client, url, token).await.map(|r| r.data)
+    fetch_json::<ApiSingleResponse<T>>(client, url, token).await.and_then(|r| r.data)
 }
 
 // ── Main Sync ─────────────────────────────────────────────────────────────────
