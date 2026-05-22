@@ -88,7 +88,7 @@ pub async fn get_tactical_tips_command(
 
     // 4. Busca os itens recomendados
     let recommended_items_json: Option<String> = sqlx::query_scalar(
-        "SELECT items_json FROM recommended_builds WHERE champion_id = ? AND items_json IS NOT NULL LIMIT 1"
+        "SELECT items_json FROM recommended_builds WHERE champion_id = ? AND elo = 'CHALLENGER' AND items_json IS NOT NULL LIMIT 1"
     )
     .bind(&resolved_id)
     .fetch_optional(pool)
@@ -134,6 +134,16 @@ pub async fn get_tactical_tips_command(
     let opp_skills = opp_spells_opt
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| get_opponent_skill_profile(&opp_name).to_string());
+
+    // Habilidades do próprio campeão — âncora para o Groq não alucinar mecânicas
+    let own_spells_opt: Option<String> = sqlx::query_scalar("SELECT spells_description FROM champions WHERE id = ?")
+        .bind(&resolved_id)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None);
+    let own_skills = own_spells_opt
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("{} ({})", champ_name, clean_tags));
 
     // Regras locais baseadas em estatísticas estáticas (Último Fallback)
     let (matchup_front, matchup_back) = match worst_matchup.as_ref() {
@@ -190,27 +200,30 @@ pub async fn get_tactical_tips_command(
         .map(|(_, wr)| format!("{:.0}", (1.0 - wr) * 100.0))
         .unwrap_or_default();
 
+    // Trunca descrições para ~150 chars — evita estourar contexto mas mantém âncoras concretas
+    let own_ctx  = own_skills.chars().take(150).collect::<String>();
+    let opp_ctx  = opp_skills.chars().take(150).collect::<String>();
+
     let groq_prompt = if let Some((opp, _)) = worst_matchup.as_ref() {
         format!(
-            "CONTEXTO: Campeão: {champ} | Classe: {tags} | Item core: {item} | \
-             Adversário: {opp} ({opp_wr}% vitória inimiga)\n\
-             REGRA: MÁXIMO 10 PALAVRAS por campo.\n\
-             JSON: {{\"matchup_front\":\"Como {champ} enfrenta {opp}?\",\
-             \"matchup_back\":\"\",\
-             \"item_front\":\"Força de {item} em {champ}?\",\
-             \"item_back\":\"\"}}",
+            "Campeão: {champ} ({tags}). Mecânicas: {own_ctx}\n\
+             Counter: {opp} ({opp_wr}% win rate). Mecânicas do {opp}: {opp_ctx}\n\
+             Item core: {item} ({item_purpose})\n\n\
+             Preencha o JSON abaixo em PT-BR, máx 10 palavras por campo, ação concreta, sem nome de jogador:\n\
+             {{\"matchup_front\":\"comportamento vs {opp} na rota\",\"matchup_back\":\"ameaça principal do {opp} e counter\",\"item_front\":\"{item} vs {opp}: vantagem principal\",\"item_back\":\"ative {item} após [gatilho específico do {opp}]\"}}",
             champ = champ_name, tags = clean_tags, item = first_item,
+            item_purpose = item_purpose,
             opp = opp, opp_wr = opp_percent_str,
+            own_ctx = own_ctx, opp_ctx = opp_ctx,
         )
     } else {
         format!(
-            "CONTEXTO: Campeão: {champ} | Classe: {tags} | Item core: {item}\n\
-             REGRA: MÁXIMO 10 PALAVRAS por campo.\n\
-             JSON: {{\"matchup_front\":\"{champ} — posicionamento na rota?\",\
-             \"matchup_back\":\"\",\
-             \"item_front\":\"Força de {item} em {champ}?\",\
-             \"item_back\":\"\"}}",
+            "Campeão: {champ} ({tags}). Mecânicas: {own_ctx}\n\
+             Item core: {item} ({item_purpose})\n\n\
+             Preencha o JSON abaixo em PT-BR, máx 10 palavras por campo, ação concreta, sem nome de jogador:\n\
+             {{\"matchup_front\":\"{champ}: posicionamento chave na rota\",\"matchup_back\":\"quando {champ} inicia vs quando recua\",\"item_front\":\"{item}: por que é o core ideal\",\"item_back\":\"ative {item} após [gatilho de combate]\"}}",
             champ = champ_name, tags = clean_tags, item = first_item,
+            item_purpose = item_purpose, own_ctx = own_ctx,
         )
     };
 
@@ -566,17 +579,15 @@ pub async fn get_next_item_purchase_alert(
 
     // Busca a core build recomendada
     let recommended_items_json: Option<String> = sqlx::query_scalar(
-        "SELECT items_json FROM recommended_builds WHERE champion_id = ? AND role = ? AND is_core = 1 LIMIT 1"
+        "SELECT items_json FROM recommended_builds WHERE champion_id = ? AND role = ? AND elo = 'CHALLENGER' AND is_core = 1 LIMIT 1"
     )
     .bind(&resolved_id).bind(role).fetch_optional(pool).await.unwrap_or(None).flatten();
-    
+
     let recommended_items_json = if recommended_items_json.is_none() {
-        let meta: Option<String> = sqlx::query_scalar("SELECT items_json FROM recommended_builds WHERE champion_id = ? AND role = 'META' AND is_core = 1 LIMIT 1")
-            .bind(&resolved_id).fetch_optional(pool).await.unwrap_or(None).flatten();
-        if meta.is_some() { meta } else {
-            sqlx::query_scalar("SELECT items_json FROM recommended_builds WHERE champion_id = ? AND is_core = 1 LIMIT 1")
-                .bind(&resolved_id).fetch_optional(pool).await.unwrap_or(None).flatten()
-        }
+        sqlx::query_scalar(
+            "SELECT items_json FROM recommended_builds WHERE champion_id = ? AND elo = 'CHALLENGER' AND is_core = 1 LIMIT 1"
+        )
+        .bind(&resolved_id).fetch_optional(pool).await.unwrap_or(None).flatten()
     } else {
         recommended_items_json
     };
