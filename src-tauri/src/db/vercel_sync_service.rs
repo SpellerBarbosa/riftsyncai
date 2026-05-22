@@ -16,7 +16,7 @@ const DETAIL_LIMIT_PER_ROLE: usize = 25;
 // Concorrência reduzida para não sobrecarregar o PostgreSQL do Vercel
 const META_CONCURRENCY: usize = 4;
 const DETAIL_CONCURRENCY: usize = 6;
-const MATCHUP_CONCURRENCY: usize = 6;
+const MATCHUP_CONCURRENCY: usize = 20;
 const MIN_MATCHUP_GAMES: i64 = 50;
 
 // ── Response Structs ──────────────────────────────────────────────────────────
@@ -638,30 +638,49 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
     // ── FASE 3: Matchups DIAMOND ──────────────────────────────────────────────
     emit(app, 96, "Coletando pares de matchup DIAMOND...", false);
 
-    let mut role_champs: HashMap<String, Vec<(String, i32)>> = HashMap::new();
+    // Pares únicos globais — não por role para evitar duplicatas
+    // (o endpoint de matchup não usa role, então o mesmo par por role = chamada redundante)
+    let mut all_diamond_champs: Vec<(String, i32)> = Vec::new();
     for rec in all_meta.iter().filter(|r| r.elo == "DIAMOND") {
         if let Some(&num_id) = slug_to_key.get(&rec.slug) {
-            let entry = role_champs.entry(rec.role.clone()).or_default();
-            if !entry.iter().any(|(s, _)| s == &rec.slug) {
-                entry.push((rec.slug.clone(), num_id));
+            if !all_diamond_champs.iter().any(|(s, _)| s == &rec.slug) {
+                all_diamond_champs.push((rec.slug.clone(), num_id));
             }
         }
     }
 
+    // Carrega pares já no SQLite para pular chamadas desnecessárias
+    let existing_pairs: std::collections::HashSet<(String, String)> = {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT champion_id, opponent_id FROM matchups WHERE elo = 'DIAMOND'"
+        ).fetch_all(pool).await.unwrap_or_default();
+        rows.into_iter().collect()
+    };
+    println!("[Sync] Fase 3: {} pares já no banco.", existing_pairs.len() / 2);
+
     struct MatchupTarget { slug_a: String, id_a: i32, slug_b: String, id_b: i32 }
     let mut pairs: Vec<MatchupTarget> = Vec::new();
-    for champs in role_champs.values() {
-        for i in 0..champs.len() {
-            for j in (i + 1)..champs.len() {
-                pairs.push(MatchupTarget {
-                    slug_a: champs[i].0.clone(), id_a: champs[i].1,
-                    slug_b: champs[j].0.clone(), id_b: champs[j].1,
-                });
+    for i in 0..all_diamond_champs.len() {
+        for j in (i + 1)..all_diamond_champs.len() {
+            let (slug_a, id_a) = &all_diamond_champs[i];
+            let (slug_b, id_b) = &all_diamond_champs[j];
+            // Pula se já temos os dois sentidos no banco
+            if existing_pairs.contains(&(slug_a.clone(), slug_b.clone()))
+                && existing_pairs.contains(&(slug_b.clone(), slug_a.clone())) {
+                continue;
             }
+            pairs.push(MatchupTarget {
+                slug_a: slug_a.clone(), id_a: *id_a,
+                slug_b: slug_b.clone(), id_b: *id_b,
+            });
         }
     }
     let total_pairs = pairs.len();
-    println!("[Sync] Fase 3: {} pares de matchup DIAMOND.", total_pairs);
+    println!("[Sync] Fase 3: {} novos pares para buscar.", total_pairs);
+
+    if total_pairs == 0 {
+        emit(app, 99, "Matchups já atualizados.", false);
+    }
 
     let sem_mu  = Arc::new(Semaphore::new(MATCHUP_CONCURRENCY));
     let mu_done = Arc::new(std::sync::atomic::AtomicUsize::new(0));
