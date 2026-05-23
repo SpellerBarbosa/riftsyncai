@@ -129,12 +129,31 @@ pub(crate) async fn get_kokoro_status(app: tauri::AppHandle) -> Result<String, S
     }
 }
 
+/// Decima as amostras de 24000 Hz para 16000 Hz (razão 3:2).
+/// Aplica média de 3 amostras antes de descartar 1 — filtro anti-aliasing simples.
+/// Reduz o arquivo em ~33% sem perda perceptível para voz de coaching.
+fn downsample_24k_to_16k(samples: &[f32]) -> Vec<f32> {
+    let mut out = Vec::with_capacity(samples.len() * 2 / 3);
+    let mut i = 0;
+    while i + 2 < samples.len() {
+        // Média de 3 amostras → emite 2 amostras (24k → 16k)
+        let avg = (samples[i] + samples[i + 1] + samples[i + 2]) / 3.0;
+        out.push(samples[i]);
+        out.push(avg);
+        i += 3;
+    }
+    out
+}
+
 fn write_wav_file(path: &std::path::Path, samples: &[f32]) -> Result<(), std::io::Error> {
     use std::io::Write;
-    let mut file = std::fs::File::create(path)?;
 
-    let num_samples = samples.len();
-    let sample_rate = 24000u32;
+    // Reduz para 16kHz antes de gravar no cache — 33% menor, qualidade suficiente para voz
+    let downsampled = downsample_24k_to_16k(samples);
+
+    let mut file = std::fs::File::create(path)?;
+    let num_samples = downsampled.len();
+    let sample_rate = 16000u32;
     let bits_per_sample = 16u16;
     let num_channels = 1u16;
     let byte_rate = sample_rate * num_channels as u32 * (bits_per_sample / 8) as u32;
@@ -142,12 +161,11 @@ fn write_wav_file(path: &std::path::Path, samples: &[f32]) -> Result<(), std::io
     let subchunk2_size = num_samples as u32 * (bits_per_sample / 8) as u32;
     let chunk_size = 36 + subchunk2_size;
 
-    // Header
     file.write_all(b"RIFF")?;
     file.write_all(&chunk_size.to_le_bytes())?;
     file.write_all(b"WAVEfmt ")?;
-    file.write_all(&16u32.to_le_bytes())?; // Subchunk1Size
-    file.write_all(&1u16.to_le_bytes())?;  // AudioFormat (1 = PCM)
+    file.write_all(&16u32.to_le_bytes())?;
+    file.write_all(&1u16.to_le_bytes())?;
     file.write_all(&num_channels.to_le_bytes())?;
     file.write_all(&sample_rate.to_le_bytes())?;
     file.write_all(&byte_rate.to_le_bytes())?;
@@ -156,13 +174,34 @@ fn write_wav_file(path: &std::path::Path, samples: &[f32]) -> Result<(), std::io
     file.write_all(b"data")?;
     file.write_all(&subchunk2_size.to_le_bytes())?;
 
-    // Data
-    for &sample in samples {
+    for &sample in &downsampled {
         let pcm = (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
         file.write_all(&pcm.to_le_bytes())?;
     }
 
     Ok(())
+}
+
+/// Remove os arquivos de cache mais antigos quando o total passar de `max_files`.
+/// Mantém o cache controlado sem interromper o fluxo principal.
+async fn cleanup_voice_cache(db: &sqlx::Pool<sqlx::Sqlite>, max_files: i64) {
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM voice_cache")
+        .fetch_one(db).await.unwrap_or(0);
+    if count <= max_files { return; }
+
+    let to_delete = count - max_files;
+    let old_files: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, audio_path FROM voice_cache ORDER BY created_at ASC LIMIT ?"
+    ).bind(to_delete).fetch_all(db).await.unwrap_or_default();
+
+    for (id, path) in old_files {
+        let _ = std::fs::remove_file(&path);
+        let _ = sqlx::query("DELETE FROM voice_cache WHERE id = ?")
+            .bind(&id).execute(db).await;
+    }
+    if to_delete > 0 {
+        println!("[VoiceCache] Limpeza: {} arquivo(s) antigo(s) removido(s).", to_delete);
+    }
 }
 
 #[tauri::command]
@@ -279,7 +318,9 @@ pub(crate) async fn play_voice(
 
             if db_res.is_ok() {
                 saved_to_db = true;
-                println!("[Kokoro Cache DB] Áudio salvo com sucesso no banco e disco (7 dias de expiração): '{}'", audio_path_str);
+                println!("[Kokoro Cache DB] Áudio salvo (16kHz, 7 dias): '{}'", audio_path_str);
+                // Limpa cache quando passar de 80 frases (~10MB a 16kHz)
+                cleanup_voice_cache(db, 80).await;
             } else if let Err(err) = db_res {
                 eprintln!("[Kokoro Cache DB] Erro ao registrar áudio no SQLite: {}", err);
             }
