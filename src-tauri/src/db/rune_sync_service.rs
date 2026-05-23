@@ -56,8 +56,25 @@ pub fn validate_rune_page(runes: &[i64], shards: &[i64]) -> bool {
     runes.len() == 6 && shards.len() == 3
 }
 
-/// Tenta corrigir uma página de runas malformada aplicando fallback por classe.
-/// Retorna (primary_tree, secondary_tree, runes, shards) sempre válidos.
+/// Defaults de runas por árvore primária — garante que todos os círculos da
+/// árvore primária sejam destacados corretamente, mesmo com dados parciais do Vercel.
+fn get_tree_specific_defaults(primary_tree: i64, keystone: i64) -> (i64, i64, Vec<i64>, Vec<i64>) {
+    match primary_tree {
+        8000 => (8000, 8400, vec![keystone, 9111, 9104, 8014, 8429, 8451], vec![5008, 5008, 5001]),
+        8100 => (8100, 8200, vec![keystone, 8139, 8138, 8135, 8210, 8237], vec![5008, 5008, 5001]),
+        8200 => (8200, 8300, vec![keystone, 8226, 8210, 8237, 8306, 8345], vec![5008, 5008, 5001]),
+        8300 => (8300, 8200, vec![keystone, 8306, 8345, 8352, 8226, 8210], vec![5008, 5008, 5001]),
+        8400 => (8400, 8000, vec![keystone, 8446, 8429, 8451, 9111, 9104], vec![5007, 5002, 5001]),
+        _    => (8000, 8400, vec![keystone, 9111, 9104, 8014, 8429, 8451], vec![5008, 5008, 5001]),
+    }
+}
+
+/// Corrige uma página de runas malformada.
+/// Estratégia em cascata:
+///  1. Página completa (6+3) → retorna sem alterar.
+///  2. Dados parciais com keystone + árvore válida → preenche com defaults da
+///     MESMA árvore (não por classe) — evita runas de Precisão em página de Feitiçaria.
+///  3. Dados inválidos → fallback total por classe do campeão.
 pub fn fix_rune_page(
     primary_tree: i64,
     secondary_tree: i64,
@@ -69,38 +86,39 @@ pub fn fix_rune_page(
         return (primary_tree, secondary_tree, runes.to_vec(), shards.to_vec());
     }
 
-    // Log the invalid page for debugging
-    println!(
-        "[RuneSync] Página de runas inválida: {} runas, {} shards. Aplicando fallback por classe...",
-        runes.len(),
-        shards.len()
-    );
+    println!("[RuneSync] Parcial: {} runas, {} shards (primary={}).", runes.len(), shards.len(), primary_tree);
 
+    let valid_primary = [8000i64, 8100, 8200, 8300, 8400].contains(&primary_tree);
+    let keystone = runes.first().copied().unwrap_or(0);
+
+    if valid_primary && keystone > 0 {
+        let (def_primary, def_secondary, mut def_runes, def_shards) =
+            get_tree_specific_defaults(primary_tree, keystone);
+
+        // Preserva slots 1-5 do banco se forem válidos
+        for i in 1..6 {
+            if i < runes.len() && runes[i] > 0 {
+                def_runes[i] = runes[i];
+            }
+        }
+        let use_secondary = if secondary_tree > 0 { secondary_tree } else { def_secondary };
+        let fixed_shards: Vec<i64> = (0..3)
+            .map(|i| if i < shards.len() && shards[i] > 0 { shards[i] } else { def_shards.get(i).copied().unwrap_or(5008) })
+            .collect();
+
+        return (def_primary, use_secondary, def_runes, fixed_shards);
+    }
+
+    // Fallback por classe do campeão (dados sem nenhum keystone identificável)
     let (fb_primary, fb_secondary, fb_runes, fb_shards) = get_fallback_runes_for_class(champ_tags);
-    
-    // Try to salvage what we have, otherwise use full fallback
-    let fixed_primary = if primary_tree > 0 { primary_tree } else { fb_primary };
+    let fixed_primary   = if primary_tree   > 0 { primary_tree   } else { fb_primary };
     let fixed_secondary = if secondary_tree > 0 { secondary_tree } else { fb_secondary };
-    
-    // Build runes array: must be exactly 6
-    let mut fixed_runes = Vec::with_capacity(6);
-    for i in 0..6 {
-        if i < runes.len() && runes[i] > 0 {
-            fixed_runes.push(runes[i]);
-        } else {
-            fixed_runes.push(fb_runes.get(i).copied().unwrap_or(0));
-        }
-    }
-    
-    // Build shards array: must be exactly 3
-    let mut fixed_shards = Vec::with_capacity(3);
-    for i in 0..3 {
-        if i < shards.len() && shards[i] > 0 {
-            fixed_shards.push(shards[i]);
-        } else {
-            fixed_shards.push(fb_shards.get(i).copied().unwrap_or(5008));
-        }
-    }
+    let fixed_runes: Vec<i64> = (0..6)
+        .map(|i| if i < runes.len() && runes[i] > 0 { runes[i] } else { fb_runes.get(i).copied().unwrap_or(0) })
+        .collect();
+    let fixed_shards: Vec<i64> = (0..3)
+        .map(|i| if i < shards.len() && shards[i] > 0 { shards[i] } else { fb_shards.get(i).copied().unwrap_or(5008) })
+        .collect();
 
     (fixed_primary, fixed_secondary, fixed_runes, fixed_shards)
 }

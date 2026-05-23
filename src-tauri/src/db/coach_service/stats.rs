@@ -117,12 +117,11 @@ pub async fn get_recommended_builds_command(
 ) -> Result<Vec<RecommendedBuild>, String> {
     let pool = &state.0;
     
-    let resolved_id: String = sqlx::query_scalar("SELECT id FROM champions WHERE id = ? OR name = ?")
-        .bind(&champ_id)
-        .bind(&champ_id)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(champ_id.clone());
+    // resolve_champion_db_id usa fetch_optional (seguro) + matching flexível por id/name/normalized
+    let resolved_id = {
+        let r = resolve_champion_db_id(pool, &champ_id).await;
+        if r.is_empty() { champ_id.clone() } else { r }
+    };
 
     let mapped_role = role.as_ref().map(|r| match r.to_lowercase().as_str() {
         "top" => "TOP",
@@ -162,25 +161,23 @@ pub async fn get_recommended_builds_command(
         }
     }
 
-    // 2. Recommended Builds Geral
+    // 2. Recommended Builds — prioridade: high elo mais alto com dados
+    let elo_order = "CASE elo WHEN 'CHALLENGER' THEN 1 WHEN 'GRANDMASTER' THEN 2 WHEN 'MASTER' THEN 3 WHEN 'DIAMOND' THEN 4 ELSE 5 END";
     if builds.is_empty() {
         builds = if let Some(ref r) = mapped_role {
-            sqlx::query_as::<_, RecommendedBuild>(
-                "SELECT * FROM recommended_builds WHERE champion_id = ? AND elo = 'CHALLENGER' ORDER BY (CASE WHEN role = ? THEN 0 ELSE 1 END), id DESC"
-            )
-            .bind(&resolved_id)
-            .bind(r)
-            .fetch_all(pool)
-            .await
-            .unwrap_or_default()
+            sqlx::query_as::<_, RecommendedBuild>(&format!(
+                "SELECT * FROM recommended_builds WHERE champion_id = ?
+                 ORDER BY (CASE WHEN role = ? THEN 0 ELSE 1 END), {}, id DESC", elo_order
+            ))
+            .bind(&resolved_id).bind(r)
+            .fetch_all(pool).await.unwrap_or_default()
         } else {
-            sqlx::query_as::<_, RecommendedBuild>(
-                "SELECT * FROM recommended_builds WHERE champion_id = ? AND elo = 'CHALLENGER' ORDER BY id DESC"
-            )
+            sqlx::query_as::<_, RecommendedBuild>(&format!(
+                "SELECT * FROM recommended_builds WHERE champion_id = ?
+                 ORDER BY {}, id DESC", elo_order
+            ))
             .bind(&resolved_id)
-            .fetch_all(pool)
-            .await
-            .unwrap_or_default()
+            .fetch_all(pool).await.unwrap_or_default()
         };
     }
 
@@ -190,22 +187,19 @@ pub async fn get_recommended_builds_command(
         if let Ok(version) = crate::ddragon::get_latest_version_internal(pool).await {
             let _ = crate::ddragon::get_ddragon_champion_details_internal(pool, &version, crate::config::DEFAULT_LANG, &resolved_id).await;
             builds = if let Some(ref r) = mapped_role {
-                sqlx::query_as::<_, RecommendedBuild>(
-                    "SELECT * FROM recommended_builds WHERE champion_id = ? AND elo = 'CHALLENGER' ORDER BY (CASE WHEN role = ? THEN 0 ELSE 1 END), id DESC"
-                )
-                .bind(&resolved_id)
-                .bind(r)
-                .fetch_all(pool)
-                .await
-                .unwrap_or_default()
+                sqlx::query_as::<_, RecommendedBuild>(&format!(
+                    "SELECT * FROM recommended_builds WHERE champion_id = ?
+                     ORDER BY (CASE WHEN role = ? THEN 0 ELSE 1 END), {}, id DESC", elo_order
+                ))
+                .bind(&resolved_id).bind(r)
+                .fetch_all(pool).await.unwrap_or_default()
             } else {
-                sqlx::query_as::<_, RecommendedBuild>(
-                    "SELECT * FROM recommended_builds WHERE champion_id = ? AND elo = 'CHALLENGER' ORDER BY id DESC"
-                )
+                sqlx::query_as::<_, RecommendedBuild>(&format!(
+                    "SELECT * FROM recommended_builds WHERE champion_id = ?
+                     ORDER BY {}, id DESC", elo_order
+                ))
                 .bind(&resolved_id)
-                .fetch_all(pool)
-                .await
-                .unwrap_or_default()
+                .fetch_all(pool).await.unwrap_or_default()
             };
         }
     }
@@ -647,6 +641,25 @@ pub struct ChampionMetaDb {
     pub starting_items: Vec<i64>,
 }
 
+/// Resolve o ID DDragon de um campeão a partir do nome retornado pela LCA.
+/// A LCA retorna "Miss Fortune" (com espaço), mas o DB armazena "MissFortune" (DDragon key).
+/// Usa fallback triplo: id exato, name exato, name sem espaço/apostrofe.
+pub async fn resolve_champion_db_id(pool: &Pool<Sqlite>, lca_name: &str) -> String {
+    if lca_name.is_empty() { return String::new(); }
+    let normalized = lca_name.to_lowercase().replace(' ', "").replace('\'', "");
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM champions
+         WHERE LOWER(id) = LOWER(?)
+            OR LOWER(name) = LOWER(?)
+            OR LOWER(REPLACE(REPLACE(id, ' ', ''), '''', '')) = LOWER(?)
+            OR LOWER(REPLACE(REPLACE(name, ' ', ''), '''', '')) = LOWER(?)
+         LIMIT 1"
+    )
+    .bind(lca_name).bind(lca_name).bind(&normalized).bind(&normalized)
+    .fetch_optional(pool).await.ok().flatten();
+    row.map(|(id,)| id).unwrap_or_else(|| lca_name.to_string())
+}
+
 /// Carrega os dados de meta do banco para o campeão/role atual.
 /// Chamado uma única vez por partida (cacheado no CoachState).
 pub async fn get_champion_meta_from_db(
@@ -654,12 +667,23 @@ pub async fn get_champion_meta_from_db(
     champion_id: &str,
     role: &str,
 ) -> Option<ChampionMetaDb> {
+    // Resolve to DDragon ID before querying (LCA returns "Miss Fortune", DB has "MissFortune")
+    let resolved = resolve_champion_db_id(pool, champion_id).await;
+    let key = if resolved.is_empty() { champion_id } else { &resolved };
+
     type Row = (Option<String>, Option<String>, Option<i64>, Option<String>);
+    // Skill order não muda por elo — usa o high elo mais alto que tiver dados.
+    // Builds/items: prioridade CHALLENGER > GM > MASTER > DIAMOND.
     let row: Option<Row> = sqlx::query_as::<_, Row>(
         "SELECT skill_order_json, jungle_path, first_item_time_ms, starting_items_json
-         FROM recommended_builds WHERE champion_id = ? AND role = ? AND elo = 'CHALLENGER'"
+         FROM recommended_builds WHERE champion_id = ? AND role = ?
+         ORDER BY CASE elo
+           WHEN 'CHALLENGER'  THEN 1 WHEN 'GRANDMASTER' THEN 2
+           WHEN 'MASTER'      THEN 3 WHEN 'DIAMOND'     THEN 4
+           ELSE 5 END
+         LIMIT 1"
     )
-    .bind(champion_id)
+    .bind(key)
     .bind(role)
     .fetch_optional(pool)
     .await

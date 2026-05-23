@@ -123,6 +123,9 @@ pub struct CoachState {
     pub db_matchup_difficulty: Option<i32>,
     /// Último game_time em que o ward map foi exibido (evita spam).
     pub last_ward_map_time: f64,
+    /// ID DDragon resolvido para queries de DB (ex: "MissFortune" a partir de "Miss Fortune").
+    /// Resolvido uma vez por partida para evitar mismatch entre nomes LCA e DDragon.
+    pub db_champion_key: String,
 }
 
 impl CoachState {
@@ -179,6 +182,7 @@ impl CoachState {
             db_starting_items_suggested: false,
             db_matchup_difficulty: None,
             last_ward_map_time: -300.0,
+            db_champion_key: String::new(),
         }
     }
 }

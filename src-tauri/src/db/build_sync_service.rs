@@ -202,7 +202,11 @@ pub async fn get_champion_build_command(
     role: Option<String>,
 ) -> Result<Vec<Value>, String> {
     let pool = &state.0;
-    
+
+    // Resolve DDragon ID: "Miss Fortune" → "MissFortune"
+    let resolved = crate::db::coach_service::resolve_champion_db_id(pool, &champ_id).await;
+    let key = if resolved.is_empty() { champ_id.as_str() } else { resolved.as_str() };
+
     let mapped_role = role.as_ref().map(|r| match r.to_lowercase().as_str() {
         "top" => "TOP",
         "jungle" => "JUNGLE",
@@ -215,11 +219,11 @@ pub async fn get_champion_build_command(
     let rows = if let Some(ref r) = mapped_role {
         sqlx::query_as::<_, (Option<String>,)>(
             "SELECT DISTINCT items_json FROM recommended_builds WHERE champion_id = ? AND items_json IS NOT NULL ORDER BY (CASE WHEN role = ? THEN 0 ELSE 1 END), id DESC"
-        ).bind(&champ_id).bind(r).fetch_all(pool).await
+        ).bind(key).bind(r).fetch_all(pool).await
     } else {
         sqlx::query_as::<_, (Option<String>,)>(
             "SELECT DISTINCT items_json FROM recommended_builds WHERE champion_id = ? AND items_json IS NOT NULL ORDER BY id DESC"
-        ).bind(&champ_id).fetch_all(pool).await
+        ).bind(key).fetch_all(pool).await
     };
 
     rows.map(|rows| {
@@ -236,8 +240,10 @@ pub async fn get_situational_items_command(
     champ_id: String,
 ) -> Result<Vec<Value>, String> {
     let pool = &state.0;
+    let resolved = crate::db::coach_service::resolve_champion_db_id(pool, &champ_id).await;
+    let key = if resolved.is_empty() { champ_id.as_str() } else { resolved.as_str() };
     sqlx::query("SELECT item_id, win_rate, slot_type FROM situational_items WHERE champion_id = ? ORDER BY win_rate DESC")
-        .bind(&champ_id)
+        .bind(key)
         .fetch_all(pool)
         .await
         .map(|rows| {
@@ -262,7 +268,11 @@ pub async fn get_champion_runes_command(
     role: Option<String>,
 ) -> Result<Value, String> {
     let pool = &state.0;
-    
+
+    // Resolve DDragon ID antes de qualquer query
+    let resolved = crate::db::coach_service::resolve_champion_db_id(pool, &champ_id).await;
+    let key = if resolved.is_empty() { champ_id.as_str() } else { resolved.as_str() };
+
     let mapped_role = role.as_ref().map(|r| match r.to_lowercase().as_str() {
         "top" => "TOP",
         "jungle" => "JUNGLE",
@@ -275,55 +285,38 @@ pub async fn get_champion_runes_command(
     let mut runes_str: Option<String> = None;
 
     if let Some(ref r) = mapped_role {
-        // Try recommended_builds first
         runes_str = sqlx::query_scalar(
-            "SELECT runes_json FROM recommended_builds WHERE champion_id = ? AND role = ? AND runes_json IS NOT NULL LIMIT 1"
-        )
-        .bind(&champ_id)
-        .bind(r)
-        .fetch_optional(pool)
-        .await
-        .unwrap_or(None);
+            "SELECT runes_json FROM recommended_builds WHERE champion_id = ? AND role = ? AND elo = 'CHALLENGER' AND runes_json IS NOT NULL LIMIT 1"
+        ).bind(key).bind(r).fetch_optional(pool).await.unwrap_or(None);
 
         if runes_str.is_none() {
-            // Try blitz_builds next
+            runes_str = sqlx::query_scalar(
+                "SELECT runes_json FROM recommended_builds WHERE champion_id = ? AND role = ? AND runes_json IS NOT NULL LIMIT 1"
+            ).bind(key).bind(r).fetch_optional(pool).await.unwrap_or(None);
+        }
+
+        if runes_str.is_none() {
             runes_str = sqlx::query_scalar(
                 "SELECT runes_json FROM blitz_builds WHERE champion_id = ? AND role = ? AND runes_json IS NOT NULL LIMIT 1"
-            )
-            .bind(&champ_id)
-            .bind(r)
-            .fetch_optional(pool)
-            .await
-            .unwrap_or(None);
+            ).bind(key).bind(r).fetch_optional(pool).await.unwrap_or(None);
         }
     }
 
     if runes_str.is_none() {
         runes_str = sqlx::query_scalar(
-            "SELECT runes_json FROM recommended_builds WHERE champion_id = ? AND runes_json IS NOT NULL LIMIT 1"
-        )
-        .bind(&champ_id)
-        .fetch_optional(pool)
-        .await
-        .unwrap_or(None);
+            "SELECT runes_json FROM recommended_builds WHERE champion_id = ? AND elo = 'CHALLENGER' AND runes_json IS NOT NULL LIMIT 1"
+        ).bind(key).fetch_optional(pool).await.unwrap_or(None);
     }
 
     if runes_str.is_none() {
         runes_str = sqlx::query_scalar(
             "SELECT runes_json FROM blitz_builds WHERE champion_id = ? AND runes_json IS NOT NULL LIMIT 1"
-        )
-        .bind(&champ_id)
-        .fetch_optional(pool)
-        .await
-        .unwrap_or(None);
+        ).bind(key).fetch_optional(pool).await.unwrap_or(None);
     }
 
     match runes_str {
-        Some(s) => {
-            let parsed: Value = serde_json::from_str(&s).map_err(|e| e.to_string())?;
-            Ok(parsed)
-        }
-        None => Err("No runes found for champion".to_string())
+        Some(s) => serde_json::from_str(&s).map_err(|e| e.to_string()),
+        None => Err(format!("Nenhuma runa encontrada para '{}'", champ_id))
     }
 }
 

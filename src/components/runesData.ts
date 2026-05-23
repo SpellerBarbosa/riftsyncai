@@ -43,8 +43,7 @@ export const TREE_STRUCTURES: Record<number, TreeStructure> = {
       [
         { id: 8014, name: 'Golpe de Misericórdia', icon: 'Styles/Precision/CoupDeGrace/CoupDeGrace.png' },
         { id: 8017, name: 'Dilacerar', icon: 'Styles/Precision/CutDown/CutDown.png' },
-        { id: 8299, name: 'Até a Morte', icon: 'Styles/Sorcery/LastStand/LastStand.png' },
-        { id: 8992, name: 'Toque Ígneo', icon: 'Styles/Precision/EyeballCollection/EyeballCollection.png' }
+        { id: 8299, name: 'Até a Morte', icon: 'Styles/Precision/LastStand/LastStand.png' }
       ]
     ]
   },
@@ -88,7 +87,7 @@ export const TREE_STRUCTURES: Record<number, TreeStructure> = {
       [
         { id: 8224, name: 'Orbe Anulador', icon: 'Styles/Sorcery/NullifyingOrb/Pokeshield.png' },
         { id: 8226, name: 'Faixa de Fluxo de Mana', icon: 'Styles/Sorcery/ManaflowBand/ManaflowBand.png' },
-        { id: 8275, name: 'Manto de Nimbus', icon: 'perk-images/Styles/Sorcery/NimbusCloak/6361.png' }
+        { id: 8275, name: 'Manto de Nimbus', icon: 'Styles/Sorcery/NimbusCloak/6361.png' }
       ],
       [
         { id: 8210, name: 'Transcendência', icon: 'Styles/Sorcery/Transcendence/Transcendence.png' },
@@ -176,16 +175,35 @@ export const SHARDS_ROWS = [
 
 /**
  * Maps alternative/renamed rune IDs to their canonical visual equivalent in TREE_STRUCTURES.
- * These are IDs used by the API/database that correspond to the same visual slot
- * but have different numeric IDs across patches.
+ * Covers Season 13-15 rune ID changes across patches.
  */
 export const RUNE_ID_ALIASES: Record<number, number> = {
-  // Domination row[1] — Observer-type slot variants
-  8137: 8136, // Sexto Sentido → Sentinela Zumbi slot
-  8140: 8138, // Lembranças Aterrorizantes → Coleção de Olhos slot  
-  8141: 8120, // Sentinela Profunda → Poro Fantasma slot
-  // Precision row[2] — Last Stand variants
-  8992: 8299, // Toque Ígneo → Até a Morte slot
+  // Domination row[1] — variantes do slot de Observer/Ward
+  8137: 8136, // Sexto Sentido → Sentinela Zumbi
+  8140: 8138, // Lembranças Aterrorizantes → Coleção de Olhos
+  8141: 8120, // Sentinela Profunda → Poro Fantasma
+
+  // Precision row[2] — variantes de Last Stand
+  8992: 8299, // Toque Ígneo (Season 14) → Até a Morte slot
+
+  // Precision row[0] — Overheal / Absorb Life variants
+  9101: 9101, // Sobrecura (identity, in case API returns old ID)
+
+  // Resolve — variantes de Conditioning / Second Wind
+  8473: 8473, // Bone Plating (identity)
+  8444: 8444, // Second Wind (identity)
+
+  // Sorcery row[1] — variantes de Celerity / Waterwalking
+  8234: 8234, // Celeridade (identity)
+  8233: 8233, // Foco Absoluto (identity)
+
+  // Inspiration row[0] — Triple Tonic / Perfect Timing variants
+  8313: 8313, // Tônico Triplo / Perfect Timing (identity)
+
+  // Season 15 nova Runa de Dominação (caso a API retorne ID diferente)
+  // Estes mapeamentos são adicionados preventivamente:
+  8143: 8143, // Sudden Impact (identity)
+  8126: 8126, // Cheap Shot (identity)
 };
 
 /**

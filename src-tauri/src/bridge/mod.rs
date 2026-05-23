@@ -538,7 +538,7 @@ pub fn start_background_bridge(handle: tauri::AppHandle) {
             was_in_game = is_in_game;
 
             if is_in_game {
-                in_game::handle_in_game_coaching(&handle, &lca_data, champ_name.as_deref(), &mut coach_state, &mut last_tip_emit_time, cached_profile.as_ref()).await;
+                in_game::handle_in_game_coaching(&handle, &lca_data, champ_name.as_deref(), &mut coach_state, &mut last_tip_emit_time, cached_profile.as_ref(), &elo).await;
             }
 
             tokio::time::sleep(Duration::from_secs(config::LCU_POLLING_INTERVAL_SECS)).await;

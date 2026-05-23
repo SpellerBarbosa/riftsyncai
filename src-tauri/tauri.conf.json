@@ -102,6 +102,21 @@
         "alwaysOnTop": true,
         "resizable": false,
         "visible": false
+      },
+      {
+        "label": "ward-map",
+        "url": "index.html",
+        "title": "Ward Map",
+        "width": 360,
+        "height": 280,
+        "x": 20,
+        "y": 110,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "resizable": false,
+        "visible": false,
+        "skipTaskbar": true
       }
     ],
     "security": {

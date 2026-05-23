@@ -100,6 +100,40 @@ const testGroq = async () => {
 };
 // ────────────────────────────────────────────────────────────────────────────
 
+const forceSyncing = ref(false);
+const forceSyncMsg = ref('');
+const forceSyncOk  = ref<boolean | null>(null);
+
+const forceSync = async () => {
+  forceSyncing.value = true;
+  forceSyncMsg.value = 'Sincronizando...';
+  forceSyncOk.value  = null;
+  try {
+    await invoke('force_sync_vercel_command');
+    forceSyncMsg.value = 'Sincronização concluída!';
+    forceSyncOk.value  = true;
+  } catch (e: any) {
+    forceSyncMsg.value = `Erro: ${e}`;
+    forceSyncOk.value  = false;
+  } finally {
+    forceSyncing.value = false;
+  }
+};
+
+const coverageResult = ref<any>(null);
+const coverageLoading = ref(false);
+
+const checkCoverage = async () => {
+  coverageLoading.value = true;
+  try {
+    coverageResult.value = await invoke('get_sync_coverage');
+  } catch (e: any) {
+    coverageResult.value = { error: String(e) };
+  } finally {
+    coverageLoading.value = false;
+  }
+};
+
 const openDataViewer = async () => {
   try {
     let win = await WebviewWindow.getByLabel("data-viewer");
@@ -396,6 +430,45 @@ onMounted(() => {
             Abrir Visualizador
           </button>
         </div>
+
+        <div class="setting-card">
+          <div class="card-info">
+            <h4>Forçar Sincronização</h4>
+            <p>Ignora o cache de 2h e baixa os dados mais recentes da API agora.</p>
+            <span v-if="forceSyncMsg" :class="forceSyncOk === true ? 'sync-ok' : forceSyncOk === false ? 'sync-err' : 'sync-info'">
+              {{ forceSyncMsg }}
+            </span>
+          </div>
+          <button class="btn-secondary" :disabled="forceSyncing" @click="forceSync">
+            {{ forceSyncing ? '⏳ Sincronizando...' : '🔄 Forçar Sync' }}
+          </button>
+        </div>
+
+        <div class="setting-card">
+          <div class="card-info">
+            <h4>Cobertura do Banco</h4>
+            <p>Verifica quais ELOs foram populados com sucesso após o sync.</p>
+            <div v-if="coverageResult && !coverageResult.error" class="coverage-grid">
+              <div class="coverage-row">
+                <span>Campeões</span>
+                <strong>{{ coverageResult.champions_with_data }}</strong>
+              </div>
+              <div class="coverage-row">
+                <span>Wards (Challenger)</span>
+                <strong>{{ coverageResult.wards_challenger }}</strong>
+              </div>
+              <div class="coverage-section">Tier List por ELO:</div>
+              <div v-for="(count, elo) in coverageResult.tier_list_por_elo" :key="elo" class="coverage-row">
+                <span>{{ elo }}</span>
+                <strong :class="count > 0 ? 'sync-ok' : 'sync-err'">{{ count }} entradas</strong>
+              </div>
+            </div>
+            <span v-if="coverageResult?.error" class="sync-err">{{ coverageResult.error }}</span>
+          </div>
+          <button class="btn-secondary" :disabled="coverageLoading" @click="checkCoverage">
+            {{ coverageLoading ? '⏳ Verificando...' : '🔍 Verificar Cobertura' }}
+          </button>
+        </div>
       </section>
 
       <!-- ABOUT -->
@@ -660,6 +733,15 @@ input:checked + .slider:before { transform: translateX(16px); }
 .info-row .val { color: var(--accent-gold); font-weight: 800; }
 
 .settings-footer { margin-top: auto; text-align: center; font-size: 9px; opacity: 0.3; padding-top: 14px; }
+
+.sync-ok   { font-size: 9px; color: #4af0a0; margin-top: 4px; display: block; }
+.sync-err  { font-size: 9px; color: #f04a4a; margin-top: 4px; display: block; }
+.sync-info { font-size: 9px; color: #a09b8c; margin-top: 4px; display: block; }
+
+.coverage-grid { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
+.coverage-row  { display: flex; justify-content: space-between; font-size: 9px; color: #a09b8c; }
+.coverage-row strong { font-size: 9px; }
+.coverage-section { font-size: 8px; color: #5a5a5a; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
 
 .btn-primary, .btn-secondary {
   background: linear-gradient(to bottom, #c89b3c 0%, #785a28 100%);

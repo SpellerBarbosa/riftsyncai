@@ -56,6 +56,14 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            // Janelas de overlay puras devem ignorar cliques do mouse — o jogador precisa
+            // interagir com o League of Legends por baixo delas sem interferência.
+            for label in &["build", "flashcard", "rune-overlay", "ward-map"] {
+                if let Some(win) = app.get_webview_window(label) {
+                    let _ = win.set_ignore_cursor_events(true);
+                }
+            }
+
             let handle = app.handle().clone();
             let handle_for_spawn = handle.clone();
 
@@ -159,6 +167,41 @@ pub fn run() {
 
             bridge::start_background_bridge(handle.clone());
 
+            // Auto-sync DDragon essentials (itens e campeões) se tabela vazia
+            if let Some(db_state) = handle.try_state::<crate::db::DbState>() {
+                let pool_ddragon = db_state.0.clone();
+                tauri::async_runtime::spawn(async move {
+                    let item_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM items")
+                        .fetch_one(&pool_ddragon).await.unwrap_or(0);
+
+                    if item_count == 0 {
+                        println!("[DDragon] Tabela de itens vazia — sincronizando automaticamente...");
+                        match crate::ddragon::get_latest_version_internal(&pool_ddragon).await {
+                            Ok(version) => {
+                                let client = crate::ddragon::DDragonClient::new();
+                                let lang = crate::config::DEFAULT_LANG;
+
+                                if let Ok(data) = client.get(&format!("/cdn/{}/data/{}/item.json", version, lang)).await {
+                                    match crate::db::sync_service::sync_items(&pool_ddragon, &data).await {
+                                        Ok(_) => println!("[DDragon] Itens sincronizados com sucesso."),
+                                        Err(e) => eprintln!("[DDragon] Erro ao salvar itens: {}", e),
+                                    }
+                                }
+                                if let Ok(data) = client.get(&format!("/cdn/{}/data/{}/champion.json", version, lang)).await {
+                                    match crate::db::sync_service::sync_champions(&pool_ddragon, &data).await {
+                                        Ok(_) => println!("[DDragon] Campeões sincronizados com sucesso."),
+                                        Err(e) => eprintln!("[DDragon] Erro ao salvar campeões: {}", e),
+                                    }
+                                }
+                            }
+                            Err(e) => eprintln!("[DDragon] Erro ao obter versão: {}", e),
+                        }
+                    } else {
+                        println!("[DDragon] {} itens já no banco — pulando sync.", item_count);
+                    }
+                });
+            }
+
             // Verifica atualizações em background (5s após inicialização para não atrasar o startup)
             let update_handle = handle.clone();
             tauri::async_runtime::spawn(async move {
@@ -222,6 +265,8 @@ pub fn run() {
             db::rune_sync_service::reset_builds_and_runes_command,
             db::blitz_service::sync_blitz_command,
             db::vercel_sync_service::sync_vercel_command,
+            db::vercel_sync_service::force_sync_vercel_command,
+            db::vercel_sync_service::get_sync_coverage,
             db::vercel_sync_service::get_sync_state,
             db::player_style_service::get_player_style_analysis,
             db::player_style_service::save_lcu_summoner_command,

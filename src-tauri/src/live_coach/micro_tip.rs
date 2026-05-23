@@ -288,6 +288,14 @@ pub fn get_role_micro_tip(
             }
         }
 
+        // Tip proativa de wave control (150-200s) — cobre safe-play gap
+        if game_time >= 150.0 && game_time < 200.0 {
+            fire!("TOP_WAVE_EARLY", 1, "TOP_WAVE_EARLY",
+                "🌊 Controle de Onda".to_string(),
+                "Empurre a onda antes do Aronguejo (3:30) e warda o rio.".to_string()
+            );
+        }
+
         if level == 6 && my_kills >= my_deaths {
             fire!("TOP_SPIKE", 1, "TOP_SPIKE",
                 "🌟 Nível 6".to_string(),
@@ -354,6 +362,14 @@ pub fn get_role_micro_tip(
                      format!("{} rotacionando há {:.0}s. Avance imediatamente.", ename, fog)),
                 ]);
             }
+        }
+
+        // Tip proativa de roam/rio (120-160s) — cobre safe-play gap
+        if game_time >= 120.0 && game_time < 160.0 {
+            fire!("MID_RIVER_EARLY", 1, "MID_RIVER_EARLY",
+                "🗺️ Visão do Rio".to_string(),
+                "Empurre e warda os lados — controle as entradas de gank.".to_string()
+            );
         }
 
         if level == 6 && my_kills >= my_deaths {
@@ -426,6 +442,14 @@ pub fn get_role_micro_tip(
                 ("🔪 Confirme",
                  format!("{} a {:.0}% — CC do suporte, você finaliza.", lowest_enemy_name, lowest_enemy_hp_pct * 100.0)),
             ]);
+        }
+
+        // Tip proativa de posicionamento (90-120s) — antes do Nível 2 all-in
+        if game_time >= 90.0 && game_time < 120.0 {
+            fire!("ADC_POS_EARLY", 1, "ADC_POS_EARLY",
+                "🛡️ Posicionamento Early".to_string(),
+                "Fique atrás do suporte nas trocas — Nível 2 é a janela de all-in.".to_string()
+            );
         }
 
         if cs_gap < 5.0 && cs_gap < 999.0 && hist_cs_per_min < 8.0 {

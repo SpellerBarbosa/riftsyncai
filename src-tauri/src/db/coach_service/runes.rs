@@ -283,51 +283,83 @@ pub async fn get_rune_overlay_data_command_internal(
     let resolved_role = role.unwrap_or_else(|| "MID".to_string()).to_uppercase();
     let resolved_elo = elo.unwrap_or_else(|| "GLOBAL".to_string()).to_uppercase();
 
-    // --- CASCATA DE CONSULTAS (FALLBACK) ---
-    // Tentativa 1: Blitz.gg (Específica de Elo)
-    let mut runes_str: Option<String> = sqlx::query_scalar(
-        "SELECT runes_json FROM blitz_builds WHERE champion_id = ? AND role = ? AND elo = ?"
-    )
-    .bind(&resolved_id)
-    .bind(&resolved_role)
-    .bind(&resolved_elo)
-    .fetch_optional(pool)
-    .await
-    .unwrap_or(None);
+    // --- CASCATA DE CONSULTAS ---
+    // Recomendações vêm do banco local. Prioridade: elo mais alto com dados.
+    // Skill order não muda por elo — qualquer high elo serve.
+    // Wards e builds: sempre do elo mais alto disponível.
 
-    // Tentativa 2: Recommended Builds por Role
     let mut spells_str: Option<String> = None;
-    if runes_str.is_none() {
+
+    // Tentativa 1: recommended_builds — role exata, prioridade high elo
+    let mut runes_str: Option<String> = {
         let row: Option<(String, Option<String>)> = sqlx::query_as(
-            "SELECT runes_json, summoner_spells_json FROM recommended_builds WHERE champion_id = ? AND role = ? AND runes_json IS NOT NULL LIMIT 1"
+            "SELECT runes_json, summoner_spells_json FROM recommended_builds
+             WHERE champion_id = ? AND role = ?
+               AND runes_json IS NOT NULL AND runes_json != ''
+             ORDER BY CASE elo
+               WHEN 'CHALLENGER'  THEN 1 WHEN 'GRANDMASTER' THEN 2
+               WHEN 'MASTER'      THEN 3 WHEN 'DIAMOND'     THEN 4
+               ELSE 5 END
+             LIMIT 1"
         )
         .bind(&resolved_id)
         .bind(&resolved_role)
         .fetch_optional(pool)
         .await
         .unwrap_or(None);
-        if let Some((r, s)) = row { runes_str = Some(r); spells_str = s; }
-    }
+        if let Some((r, s)) = row { spells_str = s; Some(r) } else { None }
+    };
 
-    // Tentativa 3: Qualquer role em recommended_builds
+    // Tentativa 2: recommended_builds — qualquer role, prioridade high elo
     if runes_str.is_none() {
         let row: Option<(String, Option<String>)> = sqlx::query_as(
-            "SELECT runes_json, summoner_spells_json FROM recommended_builds WHERE champion_id = ? AND runes_json IS NOT NULL LIMIT 1"
+            "SELECT runes_json, summoner_spells_json FROM recommended_builds
+             WHERE champion_id = ?
+               AND runes_json IS NOT NULL AND runes_json != ''
+             ORDER BY CASE elo
+               WHEN 'CHALLENGER'  THEN 1 WHEN 'GRANDMASTER' THEN 2
+               WHEN 'MASTER'      THEN 3 WHEN 'DIAMOND'     THEN 4
+               ELSE 5 END
+             LIMIT 1"
         )
         .bind(&resolved_id)
         .fetch_optional(pool)
         .await
         .unwrap_or(None);
-        if let Some((r, s)) = row { runes_str = Some(r); spells_str = s; }
+        if let Some((r, s)) = row { spells_str = s; runes_str = Some(r); }
     }
 
-    // Tentativa 4: blitz_builds qualquer elo (fallback com dados parciais de elo)
+    // Tentativa 3: blitz_builds — fallback com dados parciais (keystone + árvore)
     if runes_str.is_none() {
         runes_str = sqlx::query_scalar(
-            "SELECT runes_json FROM blitz_builds WHERE champion_id = ? AND role = ? AND runes_json IS NOT NULL LIMIT 1"
+            "SELECT runes_json FROM blitz_builds
+             WHERE champion_id = ? AND role = ?
+               AND runes_json IS NOT NULL AND runes_json != ''
+             ORDER BY CASE elo
+               WHEN 'CHALLENGER'  THEN 1 WHEN 'GRANDMASTER' THEN 2
+               WHEN 'MASTER'      THEN 3 WHEN 'DIAMOND'     THEN 4
+               ELSE 5 END
+             LIMIT 1"
         )
         .bind(&resolved_id)
         .bind(&resolved_role)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None);
+    }
+
+    // Tentativa 4: blitz_builds qualquer role
+    if runes_str.is_none() {
+        runes_str = sqlx::query_scalar(
+            "SELECT runes_json FROM blitz_builds
+             WHERE champion_id = ? AND runes_json IS NOT NULL AND runes_json != ''
+             ORDER BY CASE elo
+               WHEN 'CHALLENGER'  THEN 1 WHEN 'GRANDMASTER' THEN 2
+               WHEN 'MASTER'      THEN 3 WHEN 'DIAMOND'     THEN 4
+               ELSE 5 END
+             LIMIT 1"
+        )
+        .bind(&resolved_id)
         .fetch_optional(pool)
         .await
         .unwrap_or(None);
