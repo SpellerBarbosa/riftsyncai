@@ -60,7 +60,11 @@ const {
   -->
 
   <!-- Janela Principal (Main Bar overlay no topo da tela do jogador) -->
-  <div v-if="windowLabel === 'main'" class="app-container" :class="{ 'expanded': gameFlowState !== 'IDLE' }">
+  <!-- @mouseenter/@mouseleave togglam setIgnoreCursorEvents para que cliques no jogo
+       passem através da barra quando o cursor não estiver sobre ela -->
+  <div v-if="windowLabel === 'main'" class="app-container" :class="{ 'expanded': gameFlowState !== 'IDLE' }"
+       @mouseenter="appWindow.setIgnoreCursorEvents(false)"
+       @mouseleave="appWindow.setIgnoreCursorEvents(true)">
     <div class="overlay-header glass" data-tauri-drag-region>
       <div class="header-left" data-tauri-drag-region>
         <div class="ia-badge ready">⚡ COACH</div>

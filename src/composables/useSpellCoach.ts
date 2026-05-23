@@ -805,12 +805,14 @@ export function useSpellCoach() {
   let flashcardTimeout: any = null;
 
   onMounted(async () => {
-    // Janelas de display-only: passa cliques ao jogo (não captura mouse)
+    // Janelas de display-only: passa cliques ao jogo permanentemente
     const displayOnlyWindows = ['flashcard', 'build', 'ward-map', 'rune-overlay'];
     if (displayOnlyWindows.includes(windowLabel.value)) {
-      try {
-        await appWindow.setIgnoreCursorEvents(true);
-      } catch (_) {}
+      try { await appWindow.setIgnoreCursorEvents(true); } catch (_) {}
+    }
+    // Main bar: começa em pass-through — mouseenter/mouseleave no App.vue alternam
+    if (windowLabel.value === 'main') {
+      try { await appWindow.setIgnoreCursorEvents(true); } catch (_) {}
     }
 
     // Escuta atualizações de estado globais emitidas pelo ciclo LCU do Rust (bridge.rs)
