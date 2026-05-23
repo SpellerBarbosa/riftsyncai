@@ -126,6 +126,8 @@ pub struct CoachState {
     /// ID DDragon resolvido para queries de DB (ex: "MissFortune" a partir de "Miss Fortune").
     /// Resolvido uma vez por partida para evitar mismatch entre nomes LCA e DDragon.
     pub db_champion_key: String,
+    /// Role detectada na partida (para o relatório pós-jogo).
+    pub last_role: String,
 }
 
 impl CoachState {
@@ -183,6 +185,7 @@ impl CoachState {
             db_matchup_difficulty: None,
             last_ward_map_time: -300.0,
             db_champion_key: String::new(),
+            last_role: String::new(),
         }
     }
 }

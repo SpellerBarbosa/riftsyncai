@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "spell-coach-ia",
+  "productName": "rift-sync-ai",
   "version": "0.1.0",
-  "identifier": "com.spellcoach.ia",
+  "identifier": "com.riftsync.ai",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -14,7 +14,7 @@
       {
         "label": "main",
         "url": "index.html",
-        "title": "Spell Coach IA",
+        "title": "Rift Sync AI",
         "width": 400,
         "height": 50,
         "x": 0,

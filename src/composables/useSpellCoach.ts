@@ -167,6 +167,10 @@ export function useSpellCoach() {
     rarity: "epic" as 'common' | 'rare' | 'epic' | 'legendary'
   });
 
+  // Estado do pós-jogo
+  const postGameReport = ref<any>(null);
+  const postGameLoading = ref(false);
+
   // Estado do ward map
   const wardMapData = ref({
     champion: "",
@@ -325,6 +329,61 @@ export function useSpellCoach() {
       }
     } catch (e) {
       console.error("[Toggle] Erro no toggleRuneOverlay:", e);
+    }
+  };
+
+  /// Abre o overlay pós-jogo. Tenta buscar partida real; usa preview mock se falhar.
+  const showPostGame = async () => {
+    if (postGameLoading.value) return;
+    postGameLoading.value = true;
+    try {
+      await invoke('trigger_post_game_analysis');
+    } catch (e: any) {
+      console.warn('[PostGame] API falhou, abrindo preview:', e);
+      // Preview com dados realistas para ver o layout
+      const mockReport = {
+        champion: 'Jinx',
+        role: 'ADC',
+        win: false,
+        duration_min: 32.5,
+        metrics: [
+          { label: 'Mortes',         player_value: 9,    benchmark_value: 3.5, unit: 'mortes',  grade: 'D', feedback: '9 mortes — recue quando o JG inimigo não está visível.' },
+          { label: 'KDA',            player_value: 0.6,  benchmark_value: 3.0, unit: 'ratio',   grade: 'D', feedback: 'KDA baixo — priorize sobreviver. Vivo vale mais que morto com kills.' },
+          { label: 'CS por minuto',  player_value: 6.1,  benchmark_value: 8.2, unit: 'CS/min',  grade: 'C', feedback: 'Farm 2.1 CS/min abaixo do ideal — fique na rota nos primeiros 15min.' },
+          { label: 'Visão',          player_value: 0.58, benchmark_value: 0.62, unit: 'vis/min', grade: 'B', feedback: 'Visão razoável. Control Ward antes dos objetivos sempre.' },
+        ],
+        overall_grade: 'D',
+        priority_tip: 'Mortes: 9 mortes — recue quando o JG inimigo não está visível no mapa.',
+      };
+      postGameReport.value = mockReport;
+      await openPostGameWindow(mockReport);
+    } finally {
+      postGameLoading.value = false;
+    }
+  };
+
+  const openPostGameWindow = async (report: any) => {
+    // localStorage é compartilhado entre todas as webviews do Tauri — sem race condition
+    localStorage.setItem('spellcoach_postgame', JSON.stringify(report));
+
+    try {
+      const existing = await WebviewWindow.getByLabel("post-game");
+      if (existing) await existing.close();
+      await new Promise(r => setTimeout(r, 100));
+
+      new WebviewWindow("post-game", {
+        url: "index.html",
+        title: "Spell Coach — Análise Pós-Jogo",
+        width: 720,
+        height: 500,
+        transparent: true,
+        decorations: false,
+        alwaysOnTop: true,
+        center: true,
+        focus: true,
+      });
+    } catch (e) {
+      console.error('[PostGame] Erro ao abrir janela:', e);
     }
   };
 
@@ -940,6 +999,28 @@ export function useSpellCoach() {
       });
     }
 
+    // Relatório pós-jogo — abre janela centralizada com análise da partida
+    if (windowLabel.value === 'main') {
+      await listen("post-game-report", async (event: any) => {
+        if (!event.payload) return;
+        postGameReport.value = event.payload;
+        await openPostGameWindow(event.payload);
+        console.log('[PostGame] Relatório recebido:', event.payload?.champion, event.payload?.overall_grade);
+      });
+    }
+
+    // Janela post-game: lê do localStorage — disponível imediatamente ao montar
+    if (windowLabel.value === 'post-game') {
+      const stored = localStorage.getItem('spellcoach_postgame');
+      if (stored) {
+        try {
+          postGameReport.value = JSON.parse(stored);
+        } catch (e) {
+          console.error('[PostGame] Erro ao parsear relatório:', e);
+        }
+      }
+    }
+
     // Limpa fila de tips ao iniciar partida — garante que tips de ban/pick não toquem
     // antes do clear da jungle (ou de qualquer tip de início de jogo).
     if (windowLabel.value === 'main') {
@@ -1079,11 +1160,14 @@ export function useSpellCoach() {
     isExitingFlashcard,
     flashcardData,
     wardMapData,
+    postGameReport,
+    postGameLoading,
     openSettings,
     openDataViewer,
     toggleRuneOverlay,
     toggleWardMap,
     toggleFlashcard,
+    showPostGame,
     fetchAndShowRuneOverlay,
     fetchAndShowTacticalTips,
   };

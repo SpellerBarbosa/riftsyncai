@@ -6,6 +6,7 @@ mod game_flow;
 mod groq;
 mod lca;
 mod lcu;
+pub mod post_game;
 mod riot_api;
 pub mod live_coach;
 pub mod voice;
@@ -238,6 +239,9 @@ pub fn run() {
             riot_api::get_summoner_by_puuid,
             riot_api::get_match_history,
             riot_api::get_match_details,
+            riot_api::trigger_post_game_analysis,
+            post_game::get_post_game_report,
+            post_game::set_post_game_report,
             ddragon::get_ddragon_versions,
             ddragon::get_ddragon_champions,
             ddragon::get_ddragon_items,

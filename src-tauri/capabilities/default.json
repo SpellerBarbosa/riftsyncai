@@ -10,7 +10,8 @@
     "build",
     "flashcard",
     "sync-progress",
-    "rune-overlay"
+    "rune-overlay",
+    "post-game"
   ],
   "permissions": [
     "core:default",

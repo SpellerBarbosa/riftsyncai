@@ -23,6 +23,7 @@ import Flashcard from "./components/Flashcard.vue";
 import SyncProgress from "./components/SyncProgress.vue";
 import RuneOverlay from "./components/RuneOverlay.vue";
 import WardMapCard from "./components/WardMapCard.vue";
+import PostGameOverlay from "./components/PostGameOverlay.vue";
 
 // 2. IMPORTAÇÃO DA LÓGICA DE NEGÓCIO MODULARIZADA (Composable)
 import { useSpellCoach } from "./composables/useSpellCoach";
@@ -42,9 +43,12 @@ const {
   isExitingFlashcard,
   flashcardData,
   wardMapData,
+  postGameReport,
+  postGameLoading,
   openSettings,
   openDataViewer,
   toggleFlashcard,
+  showPostGame,
 } = useSpellCoach();
 </script>
 
@@ -77,7 +81,7 @@ const {
       <div class="header-right">
         <span class="lcu-status" :class="lcuStatus.toLowerCase()">{{ lcuStatus }}</span>
         <div class="action-btns">
-          <button @click="() => toggleFlashcard()" title="Dica Rápida">🃏</button>
+          <button @click="showPostGame" title="Análise da Última Partida" :class="{ 'loading': postGameLoading }">📊</button>
           <button @click="openDataViewer" title="Perfil & Estatísticas IA" :class="{ 'loading': dataViewerLoading }">👤</button>
           <button @click="openSettings" title="Configurações" :class="{ 'loading': settingsLoading }">⚙️</button>
           <button @click="appWindow.minimize()">_</button>
@@ -120,6 +124,15 @@ const {
       :objective="wardMapData.objective"
       :objective-emoji="wardMapData.objectiveEmoji"
       :seconds-to-spawn="wardMapData.secondsToSpawn"
+    />
+  </div>
+
+  <!-- Janela de Análise Pós-Jogo -->
+  <div v-else-if="windowLabel === 'post-game'" class="postgame-window">
+    <PostGameOverlay
+      v-if="postGameReport"
+      :report="postGameReport"
+      @close="appWindow.close()"
     />
   </div>
 
@@ -166,5 +179,6 @@ Usamos layouts Flexbox e CSS Grid para manter tudo 100% responsivo e otimizado.
 .sync-progress-window { width: 400px; height: 160px; display: flex; align-items: center; justify-content: center; background: transparent !important; }
 .rune-overlay-wrapper { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: transparent !important; overflow: hidden; }
 .ward-map-window { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: transparent !important; }
+.postgame-window { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: transparent !important; }
 .fallback-debug { padding: 20px; background: rgba(0,0,0,0.8); color: white; border: 1px solid red; }
 </style>

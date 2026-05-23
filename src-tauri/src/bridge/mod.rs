@@ -535,6 +535,30 @@ pub fn start_background_bridge(handle: tauri::AppHandle) {
                 let _ = handle.emit("game-started", serde_json::json!({}));
                 println!("[Bridge] Nova partida detectada — CoachState resetado.");
             }
+
+            // Fim de jogo: analisa e exibe relatório pós-partida
+            if !is_in_game && was_in_game && !coach_state.db_champion_key.is_empty() {
+                let h = handle.clone();
+                let champ = coach_state.db_champion_key.clone();
+                let role = coach_state.last_role.clone();
+                let puuid_opt: Option<String> = summoner["puuid"].as_str().map(|s| s.to_string());
+                tauri::async_runtime::spawn(async move {
+                    // Aguarda 8s para a Riot API registrar a partida
+                    tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+                    if let Some(db_state) = h.try_state::<crate::db::DbState>() {
+                        let pool = &db_state.0;
+                        if let Some(puuid) = puuid_opt {
+                            match crate::riot_api::get_last_match(&h, &puuid).await {
+                                Ok(match_data) => {
+                                    crate::post_game::analyze_and_emit(&h, pool, &match_data, &champ, &role).await;
+                                }
+                                Err(e) => println!("[PostGame] Erro ao buscar última partida: {}", e),
+                            }
+                        }
+                    }
+                });
+            }
+
             was_in_game = is_in_game;
 
             if is_in_game {

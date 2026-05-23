@@ -109,6 +109,7 @@ pub(super) async fn handle_in_game_coaching(
             if coach_state.db_champion_key.is_empty() {
                 coach_state.db_champion_key = champion_for_runes.clone();
             }
+            coach_state.last_role = role_for_runes.to_string();
             println!("[DB] Champion resolvido: '{}' → '{}'", champion_for_runes, coach_state.db_champion_key);
 
             if let Some(meta) = db::coach_service::get_champion_meta_from_db(
