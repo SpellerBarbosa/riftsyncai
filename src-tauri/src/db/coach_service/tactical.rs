@@ -191,18 +191,35 @@ pub async fn get_tactical_tips_command(
     let item_back = format!("Feche '{}' cedo — {}.", first_item, item_purpose);
 
     // --- CAMADA 1: GROQ (INFERÊNCIA RÁPIDA NA NUVEM) ---
-    // Captura o tipo de falha para sinalizar ao frontend quando liberar o fallback procedural.
-    // - groq_exhausted = false  →  Groq respondeu com sucesso (bloqueia procedural)
-    // - groq_exhausted = true   →  Groq falhou (sem tokens, rate-limit, rede) → libera procedural
     let groq_exhausted;
 
     let opp_percent_str = worst_matchup.as_ref()
         .map(|(_, wr)| format!("{:.0}", (1.0 - wr) * 100.0))
         .unwrap_or_default();
 
-    // Trunca descrições para ~150 chars — evita estourar contexto mas mantém âncoras concretas
     let own_ctx  = own_skills.chars().take(150).collect::<String>();
     let opp_ctx  = opp_skills.chars().take(150).collect::<String>();
+
+    // Cache key: champion|opponent|item — mesmo cenário = mesma dica, TTL 14 dias
+    let opp_key = worst_matchup.as_ref().map(|(o, _)| o.as_str()).unwrap_or("none");
+    let groq_cache_key = format!("groq:{}:{}:{}", resolved_id, opp_key, first_item);
+
+    // Tenta recuperar do cache SQLite antes de chamar o Groq
+    let cached: Option<String> = sqlx::query_scalar(
+        "SELECT response_json FROM groq_cache WHERE cache_key = ? AND expires_at > datetime('now')"
+    ).bind(&groq_cache_key).fetch_optional(pool).await.unwrap_or(None);
+
+    if let Some(cached_json) = cached {
+        if let Ok(mut parsed) = serde_json::from_str::<TacticalTipsResponse>(&cached_json) {
+            let has_content = parsed.matchup_back.as_deref().map(|s| !s.is_empty()).unwrap_or(false)
+                && parsed.item_back.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
+            if has_content {
+                parsed.groq_exhausted = false;
+                println!("[Coach:Groq] Cache HIT — sem chamada à API ({}).", groq_cache_key);
+                return Ok(parsed);
+            }
+        }
+    }
 
     let groq_prompt = if let Some((opp, _)) = worst_matchup.as_ref() {
         format!(
@@ -238,8 +255,13 @@ pub async fn get_tactical_tips_command(
                 let has_content = parsed.matchup_back.as_deref().map(|s| !s.is_empty()).unwrap_or(false)
                     && parsed.item_back.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
                 if has_content {
-                    parsed.groq_exhausted = false; // Groq funcionou — bloqueia procedural
-                    println!("[Coach:Groq] Tip gerado com sucesso — procedural bloqueado.");
+                    parsed.groq_exhausted = false;
+                    // Salva no cache por 14 dias — mesmo matchup/item não precisa chamar Groq de novo
+                    let _ = sqlx::query(
+                        "INSERT OR REPLACE INTO groq_cache (cache_key, response_json, expires_at)
+                         VALUES (?, ?, datetime('now', '+14 days'))"
+                    ).bind(&groq_cache_key).bind(&cleaned).execute(pool).await;
+                    println!("[Coach:Groq] Tip gerado e cacheado por 14 dias ({}).", groq_cache_key);
                     return Ok(parsed);
                 }
             }

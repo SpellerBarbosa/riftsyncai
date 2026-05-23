@@ -61,17 +61,18 @@ pub async fn create_tables(pool: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             champion_id TEXT NOT NULL,
             role TEXT,
+            elo TEXT NOT NULL DEFAULT 'CHALLENGER',
             is_core BOOLEAN DEFAULT 0,
-            items_json TEXT,             -- core build items
-            runes_json TEXT,             -- {primary_tree, secondary_tree, runes[], shards[]}
-            skill_priority TEXT,         -- ex: 'Q > E > W'
-            starting_items_json TEXT,    -- itens comprados nos primeiros 60s
-            summoner_spells_json TEXT,   -- [spell1_id, spell2_id]
-            skill_order_json TEXT,       -- JSON array de habilidades por nivel (ex: Q,W,Q,E,Q,R)
-            first_item_time_ms INTEGER,  -- ms até o 1º item core
-            jungle_path TEXT,            -- rota de limpeza (ex: 'Blue > Gromp > Wolves > Raptors')
+            items_json TEXT,
+            runes_json TEXT,
+            skill_priority TEXT,
+            starting_items_json TEXT,
+            summoner_spells_json TEXT,
+            skill_order_json TEXT,
+            first_item_time_ms INTEGER,
+            jungle_path TEXT,
             FOREIGN KEY (champion_id) REFERENCES champions(id),
-            UNIQUE(champion_id, role)
+            UNIQUE(champion_id, role, elo)
         )"
     ).execute(pool).await?;
 
@@ -81,6 +82,18 @@ pub async fn create_tables(pool: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
     let _ = sqlx::query("ALTER TABLE recommended_builds ADD COLUMN skill_order_json TEXT").execute(pool).await;
     let _ = sqlx::query("ALTER TABLE recommended_builds ADD COLUMN first_item_time_ms INTEGER").execute(pool).await;
     let _ = sqlx::query("ALTER TABLE recommended_builds ADD COLUMN jungle_path TEXT").execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE recommended_builds ADD COLUMN elo TEXT NOT NULL DEFAULT 'CHALLENGER'").execute(pool).await;
+    // updated_at: rastreia quando cada row foi atualizada — necessário para GC.
+    // SQLite não permite DEFAULT CURRENT_TIMESTAMP em ALTER TABLE ADD COLUMN (só constantes literais).
+    // Usamos DEFAULT NULL: as queries de INSERT/UPDATE explicitamente definem CURRENT_TIMESTAMP.
+    let _ = sqlx::query("ALTER TABLE recommended_builds ADD COLUMN updated_at DATETIME").execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE blitz_builds ADD COLUMN updated_at DATETIME").execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE blitz_tier_list ADD COLUMN updated_at DATETIME").execute(pool).await;
+
+    // Migração de wards: dados antigos foram salvos com elo='DIAMOND'.
+    // O sistema atual usa 'HIGH_ELO' (Challenger+GM+Master combinados).
+    // Renomeia os registros antigos para que as queries existentes os encontrem.
+    let _ = sqlx::query("UPDATE ward_heatmaps SET elo = 'HIGH_ELO' WHERE elo = 'DIAMOND'").execute(pool).await;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS matches (
@@ -125,6 +138,7 @@ pub async fn create_tables(pool: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
             win_rate REAL,
             pick_rate REAL,
             ban_rate REAL,
+            updated_at DATETIME,
             UNIQUE(elo, role, champion_id)
         )"
     ).execute(pool).await?;
@@ -137,6 +151,7 @@ pub async fn create_tables(pool: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
             elo TEXT NOT NULL,
             items_json TEXT,
             runes_json TEXT,
+            updated_at DATETIME,
             UNIQUE(champion_id, role, elo)
         )"
     ).execute(pool).await?;
@@ -157,6 +172,13 @@ pub async fn create_tables(pool: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
 
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_ward_heatmap ON ward_heatmaps(champion_id, role, elo)").execute(pool).await?;
 
+    // Índices para o GC (queries por updated_at em tabelas grandes)
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_recommended_builds_updated ON recommended_builds(updated_at)").execute(pool).await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_blitz_tier_list_updated ON blitz_tier_list(updated_at)").execute(pool).await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_blitz_builds_updated ON blitz_builds(updated_at)").execute(pool).await?;
+    // Índice para lookup de matchups por ELO (novo multi-ELO)
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_matchups_elo ON matchups(champion_id, opponent_id, elo)").execute(pool).await?;
+
     // 6. Voice Cache
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS voice_cache (
@@ -172,6 +194,20 @@ pub async fn create_tables(pool: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
 
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_voice_cache_key ON voice_cache(phrase_key)").execute(pool).await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_voice_cache_expiry ON voice_cache(expires_at)").execute(pool).await?;
+
+    // 7. Groq Cache — evita chamar a API para o mesmo campeão/matchup/item
+    // Chave: champion|opponent|item (mesmo cenário = mesma dica)
+    // TTL: 14 dias (meta não muda a cada partida)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS groq_cache (
+            cache_key TEXT PRIMARY KEY NOT NULL,
+            response_json TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP NOT NULL
+        )"
+    ).execute(pool).await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_groq_cache_expiry ON groq_cache(expires_at)").execute(pool).await?;
 
     Ok(())
 }
