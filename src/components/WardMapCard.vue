@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
+const hideWindow = () => getCurrentWindow().hide();
 
 interface WardPoint {
   x: number;   // game coordinate 0–15000
@@ -60,7 +63,11 @@ const minuteStr = computed(() => {
   return `${m}:${String(s).padStart(2, "0")}`;
 });
 
-const topWards = computed(() => props.wards.slice(0, 6));
+// Suporte carrega mais visão; demais funções mostram apenas os 2 pontos mais estratégicos
+const topWards = computed(() => {
+  const limit = props.role?.toUpperCase() === 'SUPPORT' ? 6 : 2;
+  return props.wards.slice(0, limit);
+});
 </script>
 
 <template>
@@ -76,7 +83,10 @@ const topWards = computed(() => props.wards.slice(0, 6));
           👁️ Wards · {{ roleLabel }}
         </template>
       </span>
-      <span class="ward-time">{{ minuteStr }}</span>
+      <div class="ward-header-right">
+        <span class="ward-time">{{ minuteStr }}</span>
+        <button class="ward-close-btn" @click="hideWindow" title="Fechar">×</button>
+      </div>
     </div>
 
     <!-- Mapa -->
@@ -193,11 +203,14 @@ const topWards = computed(() => props.wards.slice(0, 6));
   letter-spacing: 0.3px;
 }
 .ward-header.is-objective .ward-title { color: #f0e84a; }
-.ward-time {
-  font-size: 9px;
-  color: #a09b8c;
-  font-weight: 600;
+.ward-header-right { display: flex; align-items: center; gap: 6px; }
+.ward-time { font-size: 9px; color: #a09b8c; font-weight: 600; }
+.ward-close-btn {
+  background: none; border: none; color: #5b5a56; font-size: 14px;
+  cursor: pointer; padding: 0 2px; line-height: 1; border-radius: 2px;
+  transition: color 0.15s;
 }
+.ward-close-btn:hover { color: #ff4e4e; }
 
 /* Mapa */
 .map-container {

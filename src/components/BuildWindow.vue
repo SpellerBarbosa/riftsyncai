@@ -2,6 +2,9 @@
 import { ref, onMounted, watch } from 'vue';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+
+const hideWindow = () => getCurrentWindow().hide();
 
 const props = defineProps<{
   champion?: string;
@@ -201,6 +204,7 @@ onMounted(async () => {
     </div>
 
     <div class="brand-tag">SPELL COACH IA</div>
+    <button class="build-close-btn" @click="hideWindow" title="Fechar">×</button>
   </div>
 </template>
 
@@ -304,7 +308,7 @@ onMounted(async () => {
 
 .brand-tag {
   position: absolute;
-  right: 10px;
+  right: 28px;
   bottom: 2px;
   font-size: 7px;
   font-weight: 800;
@@ -312,4 +316,21 @@ onMounted(async () => {
   opacity: 0.4;
   letter-spacing: 1px;
 }
+
+.build-close-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.25);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 3px;
+  line-height: 1;
+  border-radius: 2px;
+  transition: color 0.15s;
+}
+.build-close-btn:hover { color: #ff4e4e; }
 </style>

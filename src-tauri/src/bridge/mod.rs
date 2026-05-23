@@ -19,6 +19,7 @@ pub fn start_background_bridge(handle: tauri::AppHandle) {
 
         // Cache do draft final para análise pré-jogo durante o loading screen
         let mut pre_game_enemy_ids: Vec<(i64, String)> = Vec::new(); // (champion_id, role)
+        let mut pre_game_ally_ids: Vec<(i64, String)> = Vec::new();  // time aliado
         let mut pre_game_player_id: i64 = 0;
         let mut pre_game_player_role_cache: String = String::new();
         let mut pre_game_elo_cache: String = "GOLD".to_string();
@@ -484,6 +485,10 @@ pub fn start_background_bridge(handle: tauri::AppHandle) {
                             .filter(|m| m.champion_id > 0)
                             .map(|m| (m.champion_id, m.assigned_position.clone()))
                             .collect();
+                        pre_game_ally_ids = my_team.iter()
+                            .filter(|m| m.champion_id > 0)
+                            .map(|m| (m.champion_id, m.assigned_position.clone()))
+                            .collect();
 
                         if raw_id > 0 {
                             if let Some(state) = handle.try_state::<db::DbState>() {
@@ -549,6 +554,7 @@ pub fn start_background_bridge(handle: tauri::AppHandle) {
                 if pre_game_player_id > 0 && !pre_game_enemy_ids.is_empty() {
                     let h = handle.clone();
                     let enemy_ids = std::mem::take(&mut pre_game_enemy_ids);
+                    let ally_ids  = std::mem::take(&mut pre_game_ally_ids);
                     let player_id = pre_game_player_id;
                     let p_role = pre_game_player_role_cache.clone();
                     let elo_snap = pre_game_elo_cache.clone();
@@ -559,6 +565,27 @@ pub fn start_background_bridge(handle: tauri::AppHandle) {
                                 Ok(Some(n)) => n,
                                 _ => return,
                             };
+
+                            // Time aliado
+                            let mut allies_json = Vec::new();
+                            for (aid, arole) in &ally_ids {
+                                if let Ok(Some(aname)) = crate::db::coach_service::get_champion_id_by_key(pool, *aid as i32).await {
+                                    let display = helpers::format_champion_display_name(&aname);
+                                    let role_disp = match arole.to_uppercase().as_str() {
+                                        "TOP" => "Top", "JUNGLE" => "JG", "MIDDLE" => "Mid",
+                                        "BOTTOM" => "ADC", "UTILITY" => "Sup", _ => "?",
+                                    };
+                                    let is_self = aname == player_champ;
+                                    allies_json.push(serde_json::json!({
+                                        "name": display,
+                                        "champion_id": aname,
+                                        "role": role_disp,
+                                        "is_self": is_self,
+                                    }));
+                                }
+                            }
+
+                            // Time inimigo com matchups
                             let mut matchups_json = Vec::new();
                             let mut avoid_list: Vec<String> = Vec::new();
                             for (eid, erole) in &enemy_ids {
@@ -579,16 +606,18 @@ pub fn start_background_bridge(handle: tauri::AppHandle) {
                                     if verdict == "avoid" { avoid_list.push(display.clone()); }
                                     matchups_json.push(serde_json::json!({
                                         "enemy": display,
+                                        "champion_id": ename,
                                         "role": role_disp,
                                         "win_rate": wr,
                                         "verdict": verdict,
                                     }));
                                 }
                             }
-                            println!("[PreGame] {} vs {:?} — avoid: {:?}", player_champ, matchups_json.len(), avoid_list);
+                            println!("[PreGame] {} — aliados: {}, inimigos: {}, avoid: {:?}", player_champ, allies_json.len(), matchups_json.len(), avoid_list);
                             let _ = h.emit("pre-game-analysis", serde_json::json!({
                                 "player_champion": helpers::format_champion_display_name(&player_champ),
                                 "player_role": p_role,
+                                "allies": allies_json,
                                 "matchups": matchups_json,
                                 "avoid_1v1": avoid_list,
                             }));

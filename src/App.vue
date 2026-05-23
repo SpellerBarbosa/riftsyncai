@@ -30,8 +30,6 @@ import PreGameOverlay from "./components/PreGameOverlay.vue";
 import { useSpellCoach } from "./composables/useSpellCoach";
 
 // 3. DESTRUTURAÇÃO DO ESTADO E MÉTODOS
-// Nós chamamos a função 'useSpellCoach()' e extraímos apenas as variáveis e ações
-// que serão lidas ou disparadas no template HTML logo abaixo.
 const {
   appWindow,
   windowLabel,
@@ -51,6 +49,7 @@ const {
   toggleFlashcard,
   showPostGame,
 } = useSpellCoach();
+
 </script>
 
 <template>
@@ -67,10 +66,8 @@ const {
   <!-- Janela Principal (Main Bar overlay no topo da tela do jogador) -->
   <!-- @mouseenter/@mouseleave togglam setIgnoreCursorEvents para que cliques no jogo
        passem através da barra quando o cursor não estiver sobre ela -->
-  <div v-if="windowLabel === 'main'" class="app-container" :class="{ 'expanded': gameFlowState !== 'IDLE' }"
-       @mouseenter="appWindow.setIgnoreCursorEvents(false)"
-       @mouseleave="appWindow.setIgnoreCursorEvents(true)">
-    <div class="overlay-header glass" data-tauri-drag-region>
+  <div v-if="windowLabel === 'main'" class="app-container" :class="{ 'expanded': gameFlowState !== 'IDLE' }">
+    <div class="overlay-header glass">
       <div class="header-left" data-tauri-drag-region>
         <div class="ia-badge ready">⚡ COACH</div>
         <div class="drag-dots"><span></span><span></span><span></span></div>
@@ -177,7 +174,7 @@ Usamos layouts Flexbox e CSS Grid para manter tudo 100% responsivo e otimizado.
 .lcu-status { font-size: 7px; font-weight: 800; color: #ff4e4e; text-transform: uppercase; }
 .lcu-status.connected { color: #4eff9b; }
 .action-btns { display: flex; gap: 2px; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 6px; }
-.action-btns button { background: none; border: none; color: white; opacity: 0.5; cursor: pointer; font-size: 12px; padding: 2px 4px; }
+.action-btns button { background: none; border: none; color: white; opacity: 0.5; cursor: pointer !important; font-size: 12px; padding: 2px 4px; }
 .action-btns button:hover { opacity: 1; }
 .action-btns button.loading { opacity: 1; color: #c8aa6e; animation: pulse 1s infinite; }
 .action-btns button.close-btn:hover { color: #ff4e4e; }
@@ -186,6 +183,6 @@ Usamos layouts Flexbox e CSS Grid para manter tudo 100% responsivo e otimizado.
 .rune-overlay-wrapper { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: transparent !important; overflow: hidden; }
 .ward-map-window { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: transparent !important; }
 .postgame-window { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: transparent !important; }
-.pregame-window { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: transparent !important; }
+.pregame-window { width: 100%; height: 100%; display: flex; align-items: flex-start; justify-content: flex-start; background: transparent !important; }
 .fallback-debug { padding: 20px; background: rgba(0,0,0,0.8); color: white; border: 1px solid red; }
 </style>

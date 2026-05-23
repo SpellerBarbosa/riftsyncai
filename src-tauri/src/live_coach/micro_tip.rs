@@ -142,8 +142,8 @@ pub fn get_role_micro_tip(
         }
     }
 
-    // Cooldown entre micro tips — 90s para não repetir
-    if game_time - state.last_micro_time < 90.0 || game_time < 20.0 {
+    // Cooldown entre micro tips — 45s para manter ritmo sem spam
+    if game_time - state.last_micro_time < 45.0 || game_time < 20.0 {
         return None;
     }
 

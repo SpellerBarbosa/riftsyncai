@@ -157,6 +157,42 @@ pub async fn get_tactical_tips_command(
         }
     });
 
+    // Tipo de dano do campeão — ancora o Groq para não mencionar tipo errado
+    let damage_type = {
+        let t = clean_tags.to_lowercase();
+        if t.contains("mage") { "mágico (AP)" }
+        else if t.contains("marksman") { "físico (AD crítico)" }
+        else if t.contains("assassin") { "físico (letalidade)" }
+        else if t.contains("tank") { "misto (tanque)" }
+        else if t.contains("fighter") { "físico (AD/bruiser)" }
+        else { "físico (AD)" }
+    };
+
+    // Categoria do item — valida coerência com o tipo de dano do campeão
+    let item_category = {
+        let il = first_item.to_lowercase();
+        if il.contains("luden") || il.contains("shadowflame") || il.contains("zhonya")
+           || il.contains("ampulheta") || il.contains("rabadon") || il.contains("vazio")
+           || il.contains("morello") || il.contains("horizonte") || il.contains("everfrost")
+           || il.contains("liandr") || il.contains("rylai") || il.contains("malignance") {
+            "mágico (AP)"
+        } else if il.contains("dirk") || il.contains("serrilhado") || il.contains("youmuu")
+                  || il.contains("draktharr") || il.contains("eclipse") || il.contains("profano")
+                  || il.contains("serpente") || il.contains("umbral") || il.contains("gume")
+                  || il.contains("infinity") || il.contains("kraken") || il.contains("navori")
+                  || il.contains("prowler") || il.contains("coletor") {
+            "físico (AD/Letalidade)"
+        } else if il.contains("trinity") || il.contains("trindade") || il.contains("divine")
+                  || il.contains("divino") {
+            "AD misto (Triforce)"
+        } else if il.contains("sunfire") || il.contains("fogo solar") || il.contains("titanic")
+                  || il.contains("titânico") || il.contains("heartsteel") || il.contains("thornmail") {
+            "tanque (armadura/vida)"
+        } else {
+            "físico (AD)"
+        }
+    };
+
     let opp_name = worst_matchup.as_ref().map(|(o, _)| o.clone()).unwrap_or_else(|| "Inimigo".to_string());
 
     let opp_spells_opt: Option<String> = sqlx::query_scalar("SELECT spells_description FROM champions WHERE id = ?")
@@ -169,7 +205,6 @@ pub async fn get_tactical_tips_command(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| get_opponent_skill_profile(&opp_name).to_string());
 
-    // Habilidades do próprio campeão — âncora para o Groq não alucinar mecânicas
     let own_spells_opt: Option<String> = sqlx::query_scalar("SELECT spells_description FROM champions WHERE id = ?")
         .bind(&resolved_id)
         .fetch_optional(pool)
@@ -179,50 +214,60 @@ pub async fn get_tactical_tips_command(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| format!("{} ({})", champ_name, clean_tags));
 
-    // Regras locais baseadas em estatísticas estáticas (Último Fallback)
+    // Fallback estático (Camada 3)
     let (matchup_front, matchup_back) = match worst_matchup.as_ref() {
         Some((opp, wr)) => {
             let opp_wr_percent = ((1.0 - wr) * 100.0).round();
             let mut threat_tip = " Controle a onda e evite trocas longas.".to_string();
             let o_skills_lower = opp_skills.to_lowercase();
             if o_skills_lower.contains("atordoa") || o_skills_lower.contains("stun") || o_skills_lower.contains("medo") || o_skills_lower.contains("fear") {
-                threat_tip = " Desvie do CC dele antes de iniciar trocas.".to_string();
+                threat_tip = " Desvie do controle de grupo antes de iniciar.".to_string();
             } else if o_skills_lower.contains("avanço") || o_skills_lower.contains("dash") || o_skills_lower.contains("pula") {
                 threat_tip = " Alta mobilidade — jogue recuado e espere erros.".to_string();
             } else if o_skills_lower.contains("invisível") || o_skills_lower.contains("furtivo") {
                 threat_tip = " Compre ward de controle para revelar emboscadas.".to_string();
             }
-
             (
-                format!("Como {} enfrenta {}?", champ_name, opp),
-                format!("{} counter forte ({}% vitória inimiga).{}", opp, opp_wr_percent, threat_tip)
+                format!("{} vs {}", champ_name, opp),
+                format!("{} vence {:.0}% das trocas.{}", opp, opp_wr_percent, threat_tip)
             )
         }
-        None => {
-            (
-                format!("{} — posicionamento na rota?", champ_name),
-                "Controle a onda e ward no rio contra ganks.".to_string()
-            )
-        }
+        None => (
+            format!("{} — posicionamento", champ_name),
+            "Controle a onda e ward no rio contra ganks.".to_string()
+        ),
     };
 
-    let item_front = format!("Qual a força de {} em {}?", first_item, champ_name);
-    
-    let mut item_purpose = "pico de poder para as primeiras lutas.".to_string();
+    let mut item_purpose = "pico de poder nas primeiras lutas.".to_string();
     let item_lower = first_item.to_lowercase();
     if item_lower.contains("luden") {
-        item_purpose = "burst e mana para limpar ondas rápido.".to_string();
+        item_purpose = "burst mágico e mana para limpar ondas.".to_string();
     } else if item_lower.contains("zhonya") || item_lower.contains("ampulheta") {
-        item_purpose = "estase e armadura contra ultimates inimigos.".to_string();
+        item_purpose = "estase para sobreviver ultimates inimigos.".to_string();
     } else if item_lower.contains("gume") || item_lower.contains("infinity") {
         item_purpose = "dano crítico máximo para carregar como atirador.".to_string();
     } else if item_lower.contains("fogo solar") || item_lower.contains("sunfire") {
-        item_purpose = "vida, armadura e queima passiva na selva.".to_string();
+        item_purpose = "vida, armadura e queima passiva para engajar.".to_string();
     } else if item_lower.contains("youmuu") {
-        item_purpose = "letalidade e velocidade para rotacionar e emboscar.".to_string();
+        item_purpose = "velocidade e letalidade para rotacionar e emboscar.".to_string();
+    } else if item_lower.contains("dirk") || item_lower.contains("serrilhado") {
+        item_purpose = "letalidade bruta para all-in e burst.".to_string();
+    } else if item_lower.contains("draktharr") {
+        item_purpose = "burst de letalidade com bônus invisível.".to_string();
+    } else if item_lower.contains("eclipse") {
+        item_purpose = "barreira e dano em trocas curtas.".to_string();
+    } else if item_lower.contains("kraken") {
+        item_purpose = "redução de armadura para destruir tanques.".to_string();
+    } else if item_lower.contains("trinity") || item_lower.contains("trindade") {
+        item_purpose = "Spellblade para trocas curtas e velocidade de movimento.".to_string();
+    } else if item_lower.contains("rabadon") {
+        item_purpose = "amplificador máximo de poder mágico.".to_string();
+    } else if item_lower.contains("navori") {
+        item_purpose = "redução de recarga e dano em lutas sustentadas.".to_string();
     }
 
-    let item_back = format!("Feche '{}' cedo — {}.", first_item, item_purpose);
+    let item_front = format!("{} — quando usar", first_item);
+    let item_back = format!("Feche {} cedo — {}.", first_item, item_purpose);
 
     // --- CAMADA 1: GROQ (INFERÊNCIA RÁPIDA NA NUVEM) ---
     let groq_exhausted;
@@ -231,14 +276,13 @@ pub async fn get_tactical_tips_command(
         .map(|(_, wr)| format!("{:.0}", (1.0 - wr) * 100.0))
         .unwrap_or_default();
 
-    let own_ctx  = own_skills.chars().take(150).collect::<String>();
-    let opp_ctx  = opp_skills.chars().take(150).collect::<String>();
+    let own_ctx = own_skills.chars().take(180).collect::<String>();
+    let opp_ctx = opp_skills.chars().take(180).collect::<String>();
 
-    // Cache key: champion|opponent|item — mesmo cenário = mesma dica, TTL 14 dias
     let opp_key = worst_matchup.as_ref().map(|(o, _)| o.as_str()).unwrap_or("none");
-    let groq_cache_key = format!("groq:{}:{}:{}", resolved_id, opp_key, first_item);
+    // v2: invalida entradas geradas com o prompt anterior (sem tipo de dano explícito)
+    let groq_cache_key = format!("groq:v2:{}:{}:{}", resolved_id, opp_key, first_item);
 
-    // Tenta recuperar do cache SQLite antes de chamar o Groq
     let cached: Option<String> = sqlx::query_scalar(
         "SELECT response_json FROM groq_cache WHERE cache_key = ? AND expires_at > datetime('now')"
     ).bind(&groq_cache_key).fetch_optional(pool).await.unwrap_or(None);
@@ -255,40 +299,77 @@ pub async fn get_tactical_tips_command(
         }
     }
 
-    // Só usa o oponente no prompt do Groq quando temos um adversário REAL de rota (opponent_key fornecido).
-    // Quando opponent_key é None (bots, personalizada, inimigo ainda não lockeu), usa o prompt genérico
-    // para evitar que o Groq alucine um campeão que não está no jogo.
+    // Só menciona oponente no prompt quando temos adversário REAL de rota (opponent_key fornecido).
+    // Sem oponente real → prompt genérico, sem nomes de campeões, evita alucinações.
     let groq_prompt = if opponent_key.is_some() {
         if let Some((opp, _)) = worst_matchup.as_ref() {
             format!(
-                "Campeão: {champ} ({tags}). Mecânicas: {own_ctx}\n\
-                 Adversário real de rota: {opp} ({opp_wr}% win rate do inimigo). Mecânicas do {opp}: {opp_ctx}\n\
-                 Item core: {item} ({item_purpose})\n\n\
-                 Preencha o JSON abaixo em PT-BR, máx 10 palavras por campo, ação concreta, sem nome de jogador:\n\
-                 {{\"matchup_front\":\"comportamento vs {opp} na rota\",\"matchup_back\":\"ameaça principal do {opp} e counter\",\"item_front\":\"{item} vs {opp}: vantagem principal\",\"item_back\":\"ative {item} após [gatilho específico do {opp}]\"}}",
-                champ = champ_name, tags = clean_tags, item = first_item,
-                item_purpose = item_purpose,
+                "Você é um coach de League of Legends. Responda APENAS com JSON válido, sem texto fora do JSON.\n\
+                 \n\
+                 CENÁRIO:\n\
+                 - Campeão: {champ} | Tipo de dano: {dmg} | Tags: {tags}\n\
+                 - Mecânicas próprias: {own_ctx}\n\
+                 - Adversário de rota: {opp} | Inimigo vence {opp_wr}% das trocas diretas\n\
+                 - Mecânicas do {opp}: {opp_ctx}\n\
+                 - Item core: {item} | Categoria: {item_cat} | Papel: {item_purpose}\n\
+                 \n\
+                 REGRAS OBRIGATÓRIAS:\n\
+                 1. Cada campo: 1 frase imperativa completa em PT-BR, máximo 15 palavras\n\
+                 2. NUNCA mencione tipo de dano diferente de \"{dmg}\"\n\
+                 3. NUNCA use colchetes, placeholders ou texto genérico\n\
+                 4. Baseie-se APENAS no cenário acima — sem inventar mecânicas\n\
+                 5. matchup_front e item_front: títulos curtos (máx 8 palavras)\n\
+                 6. matchup_back e item_back: instruções táticas concretas para leitura em voz alta\n\
+                 \n\
+                 JSON:\n\
+                 {{\"matchup_front\":\"{champ} vs {opp}: risco principal\",\"matchup_back\":\"instrução de comportamento vs {opp}\",\"item_front\":\"{item}: quando fecha o jogo\",\"item_back\":\"instrução de uso de {item} em combate\"}}",
+                champ = champ_name, tags = clean_tags, dmg = damage_type,
+                item = first_item, item_cat = item_category, item_purpose = item_purpose,
                 opp = opp, opp_wr = opp_percent_str,
                 own_ctx = own_ctx, opp_ctx = opp_ctx,
             )
         } else {
             format!(
-                "Campeão: {champ} ({tags}). Mecânicas: {own_ctx}\n\
-                 Item core: {item} ({item_purpose})\n\n\
-                 Preencha o JSON abaixo em PT-BR, máx 10 palavras por campo, ação concreta, sem nome de jogador:\n\
-                 {{\"matchup_front\":\"{champ}: posicionamento chave na rota\",\"matchup_back\":\"quando {champ} inicia vs quando recua\",\"item_front\":\"{item}: por que é o core ideal\",\"item_back\":\"ative {item} após [gatilho de combate]\"}}",
-                champ = champ_name, tags = clean_tags, item = first_item,
-                item_purpose = item_purpose, own_ctx = own_ctx,
+                "Você é um coach de League of Legends. Responda APENAS com JSON válido, sem texto fora do JSON.\n\
+                 \n\
+                 CENÁRIO:\n\
+                 - Campeão: {champ} | Tipo de dano: {dmg} | Tags: {tags}\n\
+                 - Mecânicas: {own_ctx}\n\
+                 - Item core: {item} | Categoria: {item_cat} | Papel: {item_purpose}\n\
+                 \n\
+                 REGRAS OBRIGATÓRIAS:\n\
+                 1. Cada campo: 1 frase imperativa completa em PT-BR, máximo 15 palavras\n\
+                 2. NUNCA mencione tipo de dano diferente de \"{dmg}\"\n\
+                 3. NUNCA use colchetes, placeholders ou texto genérico\n\
+                 4. matchup_back e item_back: instruções táticas concretas para leitura em voz alta\n\
+                 \n\
+                 JSON:\n\
+                 {{\"matchup_front\":\"{champ}: posicionamento chave\",\"matchup_back\":\"instrução de posicionamento e timing de troca\",\"item_front\":\"{item}: quando fecha o jogo\",\"item_back\":\"instrução de uso de {item} em combate\"}}",
+                champ = champ_name, tags = clean_tags, dmg = damage_type,
+                item = first_item, item_cat = item_category, item_purpose = item_purpose,
+                own_ctx = own_ctx,
             )
         }
     } else {
         format!(
-            "Campeão: {champ} ({tags}). Mecânicas: {own_ctx}\n\
-             Item core: {item} ({item_purpose})\n\n\
-             Preencha o JSON abaixo em PT-BR, máx 10 palavras por campo, ação concreta, sem nome de jogador:\n\
-             {{\"matchup_front\":\"{champ}: posicionamento chave na rota\",\"matchup_back\":\"quando {champ} inicia vs quando recua\",\"item_front\":\"{item}: por que é o core ideal\",\"item_back\":\"ative {item} após [gatilho de combate]\"}}",
-            champ = champ_name, tags = clean_tags, item = first_item,
-            item_purpose = item_purpose, own_ctx = own_ctx,
+            "Você é um coach de League of Legends. Responda APENAS com JSON válido, sem texto fora do JSON.\n\
+             \n\
+             CENÁRIO:\n\
+             - Campeão: {champ} | Tipo de dano: {dmg} | Tags: {tags}\n\
+             - Mecânicas: {own_ctx}\n\
+             - Item core: {item} | Categoria: {item_cat} | Papel: {item_purpose}\n\
+             \n\
+             REGRAS OBRIGATÓRIAS:\n\
+             1. Cada campo: 1 frase imperativa completa em PT-BR, máximo 15 palavras\n\
+             2. NUNCA mencione tipo de dano diferente de \"{dmg}\"\n\
+             3. NUNCA use colchetes, placeholders ou texto genérico\n\
+             4. matchup_back e item_back: instruções táticas concretas para leitura em voz alta\n\
+             \n\
+             JSON:\n\
+             {{\"matchup_front\":\"{champ}: posicionamento chave\",\"matchup_back\":\"instrução de posicionamento e timing de troca\",\"item_front\":\"{item}: quando fecha o jogo\",\"item_back\":\"instrução de uso de {item} em combate\"}}",
+            champ = champ_name, tags = clean_tags, dmg = damage_type,
+            item = first_item, item_cat = item_category, item_purpose = item_purpose,
+            own_ctx = own_ctx,
         )
     };
 

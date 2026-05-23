@@ -3,7 +3,7 @@ use serde_json::json;
 use sqlx::{Pool, Sqlite};
 use tauri::Manager;
 
-const DEFAULT_GROQ_MODEL: &str = "llama-3.1-8b-instant";
+const DEFAULT_GROQ_MODEL: &str = "meta-llama/llama-4-scout-17b-16e-instruct";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GroqSettings {

@@ -40,63 +40,13 @@ const saveVoiceSettings = voiceCoach.saveSettings;
 const appWindow = getCurrentWindow();
 const isClosing = ref(false);
 
-// ── GROQ ────────────────────────────────────────────────────────────────────
-const groqKey     = ref("");
-const groqModel   = ref("llama-3.1-8b-instant");
-const groqShowKey = ref(false);
-const groqTesting = ref(false);
-const groqSaving  = ref(false);
-const groqResult  = ref("");
-const groqSuccess = ref<boolean | null>(null);
-
-const groqModels = [
-  { id: "llama-3.1-8b-instant",    name: "Llama 3.1 8B Instant (Mais Rápido)" },
-  { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B Versatile (Melhor Qualidade)" },
-  { id: "gemma2-9b-it",            name: "Gemma 2 9B IT (Google)" },
-  { id: "mixtral-8x7b-32768",      name: "Mixtral 8x7B (Contexto Longo)" },
-];
-
+// ── GROQ (chave oculta — usada só para indicador de modo no promo box) ───────
+const groqKey = ref("");
 const loadGroqSettings = async () => {
   try {
     const res: any = await invoke("get_groq_settings");
-    groqKey.value   = res.api_key;
-    groqModel.value = res.model;
-  } catch (e) { console.error("Erro ao ler configurações Groq:", e); }
-};
-
-const saveGroqSettings = async () => {
-  groqSaving.value = true;
-  try {
-    await invoke("set_groq_settings", {
-      enabled: true,          // sempre ativo
-      apiKey:  groqKey.value,
-      model:   groqModel.value,
-    });
-  } catch (e) { console.error("Erro ao salvar Groq:", e); }
-  finally { setTimeout(() => { groqSaving.value = false; }, 600); }
-};
-
-const testGroq = async () => {
-  if (!groqKey.value.trim()) {
-    groqSuccess.value = false;
-    groqResult.value  = "Insira sua Chave de API primeiro.";
-    return;
-  }
-  groqTesting.value = true;
-  groqResult.value  = "Testando...";
-  groqSuccess.value = null;
-  try {
-    const res = await invoke<string>("test_groq_connection", {
-      apiKey: groqKey.value,
-      model:  groqModel.value,
-    });
-    groqSuccess.value = true;
-    groqResult.value  = `Conectado! "${res}"`;
-    await saveGroqSettings();
-  } catch (e: any) {
-    groqSuccess.value = false;
-    groqResult.value  = e.toString();
-  } finally { groqTesting.value = false; }
+    groqKey.value = res.api_key;
+  } catch { /* silencioso */ }
 };
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -182,55 +132,6 @@ onMounted(() => {
     </header>
 
     <div class="settings-content scrollable">
-      <!-- GROQ IA -->
-      <section class="settings-section">
-        <div class="section-header">
-          <span class="icon">⚡</span>
-          <h3>Coach IA — Groq</h3>
-        </div>
-
-        <div class="setting-card col">
-          <div class="card-info" style="margin-bottom:10px">
-            <h4>Inferência Ultrarrápida com Llama 3</h4>
-            <p>Sempre ativo. Chave gratuita em <a href="https://console.groq.com/keys" target="_blank">console.groq.com/keys</a>.</p>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Chave de API Groq</label>
-            <div class="input-wrapper">
-              <input
-                :type="groqShowKey ? 'text' : 'password'"
-                placeholder="gsk_..."
-                v-model="groqKey"
-                @change="saveGroqSettings"
-                class="form-input"
-              />
-              <button class="reveal-btn" @click="groqShowKey = !groqShowKey">
-                {{ groqShowKey ? '👁️' : '🔒' }}
-              </button>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Modelo</label>
-            <select v-model="groqModel" @change="saveGroqSettings" class="form-select">
-              <option v-for="m in groqModels" :key="m.id" :value="m.id">{{ m.name }}</option>
-            </select>
-          </div>
-
-          <div class="test-row">
-            <button class="btn-secondary" :disabled="groqTesting" @click="testGroq">
-              {{ groqTesting ? 'Testando...' : 'Testar Conexão' }}
-            </button>
-            <span v-if="groqSaving && !groqTesting" class="saving-badge">Salvando...</span>
-          </div>
-
-          <div v-if="groqResult" :class="['test-feedback', groqSuccess ? 'success' : groqSuccess === false ? 'error' : '']">
-            {{ groqResult }}
-          </div>
-        </div>
-      </section>
-
       <!-- FEEDBACK DE VOZ DO COACH -->
       <section class="settings-section">
         <div class="section-header">

@@ -380,8 +380,8 @@ export function useSpellCoach() {
       new WebviewWindow("post-game", {
         url: "index.html",
         title: "Spell Coach — Análise Pós-Jogo",
-        width: 720,
-        height: 500,
+        width: 1024,
+        height: 720,
         transparent: true,
         decorations: false,
         alwaysOnTop: true,
@@ -402,8 +402,8 @@ export function useSpellCoach() {
       new WebviewWindow("pre-game", {
         url: "index.html",
         title: "Spell Coach — Pré-Jogo",
-        width: 420,
-        height: 340,
+        width: 1024,
+        height: 720,
         transparent: true,
         decorations: false,
         alwaysOnTop: true,
@@ -524,11 +524,11 @@ export function useSpellCoach() {
         groqExhausted.value = !!tips.groq_exhausted;
       }
 
-      // Guard pós-await: cancela se era Champ Select e o jogo já começou enquanto aguardávamos
-      // (evita que dicas de champ select apareçam in-game quando Groq não está ativo)
+      // Guard pós-await: cancela se a sessão de CS foi encerrada enquanto aguardávamos o Groq
       const wasChampSelect = stateBeforeFetch === 'CHAMP SELECT' || stateBeforeFetch === 'CHAMPSELECT';
       const isNowInGame = gameFlowState.value === 'GAME' || gameFlowState.value === 'INGAME';
-      if (wasChampSelect && isNowInGame && !groqEnabled.value) return;
+      if (wasChampSelect && !champSelectSessionActive && !isNowInGame) return; // dodge / voltou ao lobby
+      if (wasChampSelect && isNowInGame && !groqEnabled.value) return; // CS→jogo sem Groq
 
       if (tips) {
         // Enfileira matchup como dica sequencial — aguarda o mutex antes de enfileirar itens
@@ -573,14 +573,14 @@ export function useSpellCoach() {
       console.log('[App.vue] Novo campeão ativo selecionado:', newChamp);
       await fetchAndShowRuneOverlay();
 
-      // Dicas táticas do OpenRouter apenas no Champ Select — evita duplicar com dicas in-game do Rust
-      const isChampSelect = gameFlowState.value === 'CHAMP SELECT' || gameFlowState.value === 'CHAMPSELECT';
-      if (isChampSelect && lastAutoTacticalTipChamp.value !== newChamp) {
+      // Dicas táticas apenas dentro de uma sessão ativa de Champ Select (flag de transição real)
+      if (champSelectSessionActive && lastAutoTacticalTipChamp.value !== newChamp) {
         lastAutoTacticalTipChamp.value = newChamp;
         await fetchAndShowTacticalTips();
       }
     } else {
       lastAutoTacticalTipChamp.value = null;
+      lastFetchedTipsCombo = null; // reseta o guard de combo ao sair da sessão
       // Sem campeão ativo: para a voz, limpa a fila e fecha os widgets
       stopVoice();
       tipQueue.value = [];
@@ -596,12 +596,31 @@ export function useSpellCoach() {
 
   // Quando o oponente de rota travar depois que as dicas já foram buscadas sem ele,
   // re-busca com o oponente real para corrigir a dica (evita alucinações do Groq).
+  let lastFetchedTipsCombo: string | null = null;
+
   watch(laneOpponentKey, async (newKey, oldKey) => {
     if (windowLabel.value !== 'main') return;
     if (newKey !== null && oldKey === null && activeChampion.value) {
-      const isChampSelect = gameFlowState.value === 'CHAMP SELECT' || gameFlowState.value === 'CHAMPSELECT';
-      if (isChampSelect) {
-        console.log('[App.vue] Oponente de rota travou:', newKey, '— re-buscando dicas táticas com oponente real.');
+      if (champSelectSessionActive) {
+        // Guard: se já buscamos dicas para este par campeão+oponente, ignora o re-trigger
+        // (laneOpponentKey pode oscilar null↔valor entre eventos LCU parciais)
+        const combo = `${activeChampion.value}:${newKey}`;
+        if (combo === lastFetchedTipsCombo) {
+          console.log('[App.vue] Combo já buscado:', combo, '— ignorando re-trigger do watcher.');
+          return;
+        }
+        lastFetchedTipsCombo = combo;
+        console.log('[App.vue] Oponente de rota travou:', newKey, '— descartando fila antiga e re-buscando com oponente real.');
+        // Descarta dicas antigas (geradas sem oponente real) para não acumular flashcards repetidos.
+        tipQueue.value = [];
+        if (isProcessingTip) {
+          stopVoice();
+          triggerDismiss();
+          tipSessionId++;
+          isProcessingTip = false;
+          currentActiveTip.value = null;
+          await toggleFlashcard(false);
+        }
         lastAutoTacticalTipChamp.value = null;
         await fetchAndShowTacticalTips();
       }
@@ -610,16 +629,44 @@ export function useSpellCoach() {
 
   // Observa mudanças no estado do jogo (IDLE -> CHAMP SELECT -> GAME)
   let groqInGameInterval: ReturnType<typeof setInterval> | null = null;
+  let groqGameStartTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  // Flag de sessão: só fica true após uma TRANSIÇÃO real para Champ Select.
+  // Watchers de dicas verificam este flag em vez de ler gameFlowState diretamente,
+  // evitando re-trigger por eventos LCU velhos ou HMR re-mount.
+  let champSelectSessionActive = false;
+
+  const clearInGameTimers = () => {
+    if (groqInGameInterval) { clearInterval(groqInGameInterval); groqInGameInterval = null; }
+    if (groqGameStartTimeout) { clearTimeout(groqGameStartTimeout); groqGameStartTimeout = null; }
+  };
 
   watch(gameFlowState, async (newState, oldState) => {
     if (windowLabel.value !== 'main') return;
     try {
-      const isGameActive = newState === 'GAME' || newState === 'INGAME';
-      const wasGameActive = oldState === 'GAME' || oldState === 'INGAME';
+      const isGameActive    = newState === 'GAME' || newState === 'INGAME';
+      const wasGameActive   = oldState === 'GAME' || oldState === 'INGAME';
+      const isNowCS         = newState === 'CHAMP SELECT' || newState === 'CHAMPSELECT';
+      const wasCS           = oldState === 'CHAMP SELECT' || oldState === 'CHAMPSELECT';
+
+      // Entrada real no Champ Select → abre a sessão e reseta todos os guards de fetch
+      if (isNowCS && !wasCS) {
+        champSelectSessionActive = true;
+        lastFetchedTipsCombo = null;
+        lastAutoTacticalTipChamp.value = null;
+        console.log('[App.vue] Sessão de Champ Select iniciada.');
+      }
+
+      // Saída do Champ Select (para jogo ou lobby) → fecha a sessão
+      if (!isNowCS && wasCS) {
+        champSelectSessionActive = false;
+        console.log('[App.vue] Sessão de Champ Select encerrada.');
+      }
 
       // Limpa UI do champ select SOMENTE na transição de entrada no jogo (não em blips de reconexão)
       if (isGameActive && !wasGameActive) {
         stopVoice();
+        tipQueue.value = [];
         await toggleRuneOverlay(false);
         await toggleFlashcard(false);
 
@@ -628,15 +675,18 @@ export function useSpellCoach() {
         if (groqEnabled.value) {
           console.log('[App.vue] Groq ativo — iniciando ciclo de dicas in-game via Groq (60s).');
           // Primeira dica logo ao entrar no jogo (após 10s para estabilizar)
-          setTimeout(() => {
-            if (activeChampion.value) {
-              lastAutoTacticalTipChamp.value = null; // reseta para permitir nova busca
+          groqGameStartTimeout = setTimeout(() => {
+            groqGameStartTimeout = null;
+            const stillInGame = gameFlowState.value === 'GAME' || gameFlowState.value === 'INGAME';
+            if (activeChampion.value && stillInGame) {
+              lastAutoTacticalTipChamp.value = null;
               fetchAndShowTacticalTips();
             }
           }, 10000);
           // Intervalo recorrente a cada 60s
           groqInGameInterval = setInterval(() => {
-            if (activeChampion.value) {
+            const stillInGame = gameFlowState.value === 'GAME' || gameFlowState.value === 'INGAME';
+            if (activeChampion.value && stillInGame) {
               lastAutoTacticalTipChamp.value = null;
               fetchAndShowTacticalTips();
             }
@@ -644,13 +694,19 @@ export function useSpellCoach() {
         }
       }
 
-      // Quando sai do jogo: para o intervalo Groq
+      // Quando sai do jogo: cancela timers, limpa fila e fecha flashcards pendentes
       if (!isGameActive && wasGameActive) {
-        if (groqInGameInterval) {
-          clearInterval(groqInGameInterval);
-          groqInGameInterval = null;
-          console.log('[App.vue] Saiu do jogo — intervalo Groq in-game encerrado.');
+        clearInGameTimers();
+        console.log('[App.vue] Saiu do jogo — timers Groq encerrados, limpando fila de dicas.');
+        stopVoice();
+        tipQueue.value = [];
+        if (isProcessingTip) {
+          triggerDismiss();
+          tipSessionId++;
+          isProcessingTip = false;
+          currentActiveTip.value = null;
         }
+        await toggleFlashcard(false);
       }
 
       // Controla a exibição automática da barra horizontal de builds (Build Bar)
@@ -794,11 +850,14 @@ export function useSpellCoach() {
       clearTimeout(fallbackTimer);
       stopVoice();
     } else {
-      // Sem condição de dismiss: comportamento legado (aguarda voz + 7s mínimo se sem voz).
-      await speak(customizedBackText);
-      if (!voiceEnabled.value || kokoroStatus.value !== 'ready') {
-        await new Promise(r => setTimeout(r, 7000));
-      }
+      // Sem condição de dismiss: mínimo 3s de exibição, máximo 12s com voz, 7s sem voz.
+      const minDisplay = new Promise<void>(r => setTimeout(r, 3000));
+      const maxMs = (voiceEnabled.value && kokoroStatus.value === 'ready') ? 12000 : 7000;
+      await Promise.all([
+        Promise.race([speak(customizedBackText), new Promise<void>(r => setTimeout(r, maxMs))]),
+        minDisplay,
+      ]);
+      stopVoice();
     }
 
     // Verifica se fomos supersedidos por uma emergência ou substituição de jungle clear.
@@ -909,14 +968,11 @@ export function useSpellCoach() {
   let flashcardTimeout: any = null;
 
   onMounted(async () => {
-    // Janelas de display-only: passa cliques ao jogo permanentemente
-    // rune-overlay é exibida no champ select (não in-game), então aceita cliques normalmente
-    const displayOnlyWindows = ['flashcard', 'build', 'ward-map'];
-    if (displayOnlyWindows.includes(windowLabel.value)) {
-      try { await appWindow.setIgnoreCursorEvents(true); } catch (_) {}
-    }
-    // Main bar: começa em pass-through — mouseenter/mouseleave no App.vue alternam
-    if (windowLabel.value === 'main') {
+    // Flashcard é display-only (sem interação do usuário) — passa todos os cliques ao jogo.
+    // build, ward-map e main: NÃO usam setIgnoreCursorEvents — o Tauri já passa clicks
+    // por pixels transparentes (alpha=0) nativamente. Usar setIgnoreCursorEvents(true) nas
+    // janelas com botões de fechar bloquearia os próprios botões (catch-22).
+    if (windowLabel.value === 'flashcard') {
       try { await appWindow.setIgnoreCursorEvents(true); } catch (_) {}
     }
 
@@ -948,10 +1004,9 @@ export function useSpellCoach() {
         // Coleta dinamicamente o campeão em Champ Select ou Game ativo
         const isChampSelect = gameFlowState.value === 'CHAMP SELECT' || gameFlowState.value === 'CHAMPSELECT';
         if (isChampSelect) {
+          // Só atualiza se temos um valor — eventos parciais sem championName não limpam o estado
           if (event.payload.championName) {
             activeChampion.value = event.payload.championName;
-          } else {
-            activeChampion.value = null;
           }
         } else if (gameFlowState.value === "INGAME" && event.payload.gameData) {
           const gameData = event.payload.gameData;
@@ -1018,10 +1073,20 @@ export function useSpellCoach() {
     }
 
     // Ward Map: recebe evento do Rust e exibe/atualiza a janela
+    let wardMapCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
     if (windowLabel.value === 'main') {
       await listen("update-ward-map", async (event: any) => {
         const d = event.payload;
-        if (!d) return;
+        if (!d || !d.wards?.length) return; // ignora eventos sem wards
+
+        // Cancela o timer de fechamento anterior — evita que timers acumulados
+        // fechem o mapa mais cedo do que o previsto pelo evento mais recente.
+        if (wardMapCloseTimer) {
+          clearTimeout(wardMapCloseTimer);
+          wardMapCloseTimer = null;
+        }
+
         wardMapData.value = {
           champion:        d.champion         || "",
           role:            d.role             || "MID",
@@ -1033,23 +1098,39 @@ export function useSpellCoach() {
           objectiveEmoji:  d.objective_emoji  || "",
           secondsToSpawn:  d.seconds_to_spawn || 0,
         };
+        // Persiste no localStorage para que a janela ward-map recupere os dados
+        // mesmo que o evento Tauri chegue antes do listener estar pronto.
+        try { localStorage.setItem('spellcoach_wardmap', JSON.stringify(wardMapData.value)); } catch (_) {}
         // Abre a janela (cria se necessário, aguarda carregamento)
         await toggleWardMap(true);
         // Emite dados APÓS a janela estar aberta e carregada
         try {
           await emit("ward-map-data-updated", wardMapData.value);
         } catch (_) {}
-        // Objetivo: 10s (urgente), genérico: 8s
-        const displayMs = d.objective ? 10000 : (d.display_secs ? d.display_secs * 1000 : 8000);
-        setTimeout(() => toggleWardMap(false), displayMs);
-        console.log('[WardMap] Recebido:', d.champion, d.role, d.wards?.length, 'pontos');
+        // Objetivo: 15s (urgente), genérico: 12s — tempo suficiente para o jogador ler
+        const displayMs = d.objective ? 15000 : (d.display_secs ? d.display_secs * 1000 : 12000);
+        wardMapCloseTimer = setTimeout(() => {
+          wardMapCloseTimer = null;
+          toggleWardMap(false);
+        }, displayMs);
+        console.log('[WardMap] Recebido:', d.champion, d.role, d.wards?.length, 'pontos, exibindo por', displayMs / 1000, 's');
       });
     }
 
     // Ward Map: atualiza dados quando a janela é aberta
     if (windowLabel.value === 'ward-map') {
+      // Recupera dados do localStorage como estado inicial (garante que wards aparecem
+      // mesmo que o evento Tauri tenha chegado antes do listener estar pronto).
+      try {
+        const stored = localStorage.getItem('spellcoach_wardmap');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed?.wards?.length) wardMapData.value = parsed;
+        }
+      } catch (_) {}
+
       await listen("ward-map-data-updated", (event: any) => {
-        if (event.payload) {
+        if (event.payload?.wards?.length) {
           wardMapData.value = event.payload;
         }
       });
