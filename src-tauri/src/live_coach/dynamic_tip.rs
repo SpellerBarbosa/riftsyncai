@@ -162,51 +162,51 @@ pub fn get_dynamic_coaching_tip(
         let (title, cancel_tip) = match active_player_champ.to_lowercase().as_str() {
             "riven" => (
                 "Riven: Cancel de Q".to_string(),
-                "Ataca, usa Q enquanto o golpe ainda está saindo, move. Repete em loop.".to_string()
+                "Ataca, Q na hora, move. Ataca de novo. Mantém esse loop o tempo todo.".to_string()
             ),
             "yasuo" => (
-                "Yasuo: E no minion antes do Q".to_string(),
-                "Dasha no minion e usa Q logo no impacto. O combo sai mais rápido assim.".to_string()
+                "Yasuo: E antes do Q".to_string(),
+                "Dasha no minion e usa Q na hora do impacto. O combo sai bem mais rápido.".to_string()
             ),
             "caitlyn" => (
-                "Caitlyn: E-Q-W".to_string(),
-                "Dasha para trás, Q imediato, W no chão onde o inimigo vai cair.".to_string()
+                "Caitlyn: Combo de posicionamento".to_string(),
+                "Dasha para trás, Q na hora, W no chão onde o inimigo vai parar.".to_string()
             ),
             "renekton" => (
-                "Renekton: W fortalecido".to_string(),
-                "Usa W com fúria para stunar, depois Q ou E imediatamente para maximizar o dano.".to_string()
+                "Renekton: W com fúria".to_string(),
+                "W com fúria pra stunar, Q ou E na hora. Não espera o stun acabar.".to_string()
             ),
             "leesin" | "lee sin" => (
                 "Lee Sin: Insec".to_string(),
-                "Q no alvo, coloca ward atrás dele durante o voo, W no ward, R.".to_string()
+                "Q no alvo. Ward atrás dele. W no ward. R. Tem que ser bem rápido.".to_string()
             ),
             "vayne" => (
-                "Vayne: Orbwalk na parede".to_string(),
-                "Ataca, Q rente à parede, ataca de novo. O Q reseta a animação.".to_string()
+                "Vayne: Q cancela animação".to_string(),
+                "Ataca, Q rente à parede, ataca de novo. O Q reseta o tempo entre autos.".to_string()
             ),
             "rengar" => (
-                "Rengar: Burst com 4 de fúria".to_string(),
-                "Salta com fúria máxima, Q no ar, W e E antes de pousar no chão.".to_string()
+                "Rengar: Burst máximo".to_string(),
+                "Salta com quatro de fúria, Q no ar, W e E antes de pousar.".to_string()
             ),
             "aatrox" => (
-                "Aatrox: Posição no Q".to_string(),
-                "Usa E durante a animação do Q para reposicionar e acertar a ponta da espada.".to_string()
+                "Aatrox: Ponta do Q".to_string(),
+                "E no meio do Q pra se reposicionar. A ponta causa muito mais dano.".to_string()
             ),
             "lucian" => (
-                "Lucian: Dois tiros por habilidade".to_string(),
-                "Cada habilidade reseta a passiva. Usa habilidade, dois tiros, repete.".to_string()
+                "Lucian: Dois tiros sempre".to_string(),
+                "Habilidade, dois tiros, habilidade de novo. Cada skill reseta a passiva.".to_string()
             ),
             "alistar" => (
-                "Alistar: W-Q em sequência".to_string(),
-                "W no inimigo e Q logo antes do impacto. O inimigo voa em vez de só cair.".to_string()
+                "Alistar: W-Q".to_string(),
+                "W no cara e Q logo antes de bater. Ele voa longe em vez de só cair.".to_string()
             ),
             "ezreal" => (
-                "Ezreal: R e reposiciona".to_string(),
-                "Usa R e imediatamente E para mudar de posição enquanto o R ainda está voando.".to_string()
+                "Ezreal: Ulta e move".to_string(),
+                "Ulta e dasha imediatamente. O dano já foi, pode reposicionar à vontade.".to_string()
             ),
             _ => (
-                "Orbwalk: ataca e move em loop".to_string(),
-                "Ataca, move imediatamente depois, ataca de novo. Mantém DPS sem ficar parado.".to_string()
+                "Orbwalk".to_string(),
+                "Ataca, move logo depois, ataca de novo. Mais DPS sem ficar parado.".to_string()
             )
         };
         return Some((title, cancel_tip));
