@@ -260,7 +260,10 @@ pub(super) async fn handle_in_game_coaching(
                         let name_opt: Option<String> = sqlx::query_scalar(
                             "SELECT name FROM items WHERE id = ?"
                         ).bind(id.to_string()).fetch_optional(pool).await.unwrap_or(None);
-                        v.push(name_opt.unwrap_or_else(|| format!("Item {}", id)));
+                        // Ignora itens sem nome no banco — evita falar o ID numérico no TTS
+                        if let Some(name) = name_opt {
+                            v.push(name);
+                        }
                     }
                     v
                 };

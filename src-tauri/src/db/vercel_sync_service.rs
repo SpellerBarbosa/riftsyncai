@@ -9,13 +9,27 @@ use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Semaphore;
 
 const API_BASE: &str = "https://spellcoachapiv2-bxyh.vercel.app";
-// "ALL" removido — query sem filtro de elo é a mais pesada e os dados são redundantes
 const ELOS: &[&str] = &["IRON","BRONZE","SILVER","GOLD","PLATINUM","EMERALD","DIAMOND","MASTER","GRANDMASTER","CHALLENGER"];
 const ROLES: &[&str] = &["TOP","JUNGLE","MID","ADC","UTILITY"];
-const DETAIL_LIMIT_PER_ROLE: usize = 25;
-// Concorrência reduzida para não sobrecarregar o PostgreSQL do Vercel
+
+// Elos usados para buscar detalhes (builds, runas, skill order, wards).
+// High elos = referência para ensinar boas práticas. Low elos têm builds inconsistentes.
+// Skill order não muda por elo — qualquer um desses já basta.
+// ~4 elos × 172 camps × 5 roles ≈ 3.440 calls de detalhe.
+const DETAIL_ELOS: &[&str]   = &["CHALLENGER", "GRANDMASTER", "MASTER", "DIAMOND"];
+// ELOs para matchups — inclui o público principal (GOLD, PLATINUM) além do DIAMOND
+const MATCHUP_ELOS: &[&str]  = &["GOLD", "PLATINUM", "DIAMOND"];
+
+// Peso de prioridade para queries de recomendação (menor = melhor).
+// Usado em ORDER BY para sempre servir o dado do elo mais alto disponível.
+pub fn elo_priority_sql() -> &'static str {
+    "CASE elo WHEN 'CHALLENGER' THEN 1 WHEN 'GRANDMASTER' THEN 2 WHEN 'MASTER' THEN 3 \
+     WHEN 'DIAMOND' THEN 4 WHEN 'PLATINUM' THEN 5 WHEN 'GOLD' THEN 6 ELSE 7 END"
+}
+
+// Concorrência: 4 para meta (10 elos × 5 roles = 50 calls), 12 para detalhes
 const META_CONCURRENCY: usize = 4;
-const DETAIL_CONCURRENCY: usize = 6;
+const DETAIL_CONCURRENCY: usize = 12;
 const MATCHUP_CONCURRENCY: usize = 20;
 const MIN_MATCHUP_GAMES: i64 = 50;
 
@@ -310,19 +324,40 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
         println!("[Sync] API aquecida. Iniciando burst paralelo.");
     }
 
-    // ── Campeões (DDragon) ────────────────────────────────────────────────────
+    // ── DDragon: Campeões + Itens ─────────────────────────────────────────────
     let champ_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM champions")
         .fetch_one(pool).await.unwrap_or(0);
-    if champ_count == 0 {
-        emit(app, 2, "Carregando campeões (DDragon)...", false);
+    let item_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM items")
+        .fetch_one(pool).await.unwrap_or(0);
+
+    if champ_count == 0 || item_count == 0 {
+        emit(app, 2, "Carregando dados DDragon (campeões + itens)...", false);
         if let Ok(version) = crate::ddragon::get_latest_version_internal(pool).await {
             let dc = crate::ddragon::DDragonClient::new();
-            let data = match dc.get(&format!("/cdn/{}/data/pt_BR/champion.json", version)).await {
-                Ok(d) => d,
-                Err(_) => dc.get(&format!("/cdn/{}/data/en_US/champion.json", version))
-                    .await.map_err(|e| e.to_string())?,
-            };
-            crate::db::sync_service::sync_champions(pool, &data).await.map_err(|e| e.to_string())?;
+
+            if champ_count == 0 {
+                let data = match dc.get(&format!("/cdn/{}/data/pt_BR/champion.json", version)).await {
+                    Ok(d) => d,
+                    Err(_) => dc.get(&format!("/cdn/{}/data/en_US/champion.json", version))
+                        .await.map_err(|e| e.to_string())?,
+                };
+                crate::db::sync_service::sync_champions(pool, &data).await.map_err(|e| e.to_string())?;
+                println!("[Sync] Campeões sincronizados via DDragon.");
+            }
+
+            if item_count == 0 {
+                let item_data = match dc.get(&format!("/cdn/{}/data/pt_BR/item.json", version)).await {
+                    Ok(d) => d,
+                    Err(_) => dc.get(&format!("/cdn/{}/data/en_US/item.json", version))
+                        .await.unwrap_or_default(),
+                };
+                if !item_data.is_null() {
+                    let _ = crate::db::sync_service::sync_items(pool, &item_data).await;
+                    let synced: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM items")
+                        .fetch_one(pool).await.unwrap_or(0);
+                    println!("[Sync] Itens sincronizados via DDragon: {} itens.", synced);
+                }
+            }
         }
     }
 
@@ -423,39 +458,60 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
         let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
         for rec in &all_meta {
+            // Regra do guia: UPSERT — nunca sobrescreve dados válidos com NULL/vazio.
+            // A API pode retornar vazio após o purge de 12h. ON CONFLICT protege dados existentes.
             if let Err(e) = sqlx::query(
-                "INSERT OR REPLACE INTO blitz_tier_list (elo, role, champion_id, tier, win_rate, pick_rate, ban_rate)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)"
+                "INSERT INTO blitz_tier_list (elo, role, champion_id, tier, win_rate, pick_rate, ban_rate, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                 ON CONFLICT(elo, role, champion_id) DO UPDATE SET
+                   tier       = CASE WHEN excluded.tier      != '' THEN excluded.tier      ELSE tier      END,
+                   win_rate   = CASE WHEN excluded.win_rate  > 0   THEN excluded.win_rate  ELSE win_rate  END,
+                   pick_rate  = CASE WHEN excluded.pick_rate > 0   THEN excluded.pick_rate ELSE pick_rate END,
+                   ban_rate   = CASE WHEN excluded.ban_rate  >= 0  THEN excluded.ban_rate  ELSE ban_rate  END,
+                   updated_at = CURRENT_TIMESTAMP"
             ).bind(&rec.elo).bind(&rec.role).bind(&rec.slug)
             .bind(&rec.tier).bind(rec.win_rate).bind(rec.pick_rate).bind(rec.ban_rate)
             .execute(&mut *tx).await {
-                eprintln!("[Sync] blitz_tier_list insert error ({}:{}): {}", rec.slug, rec.elo, e);
+                eprintln!("[Sync] blitz_tier_list upsert error ({}:{}): {}", rec.slug, rec.elo, e);
             }
 
-            // blitz_builds: only when we have item data from meta (may be empty in v2 API)
+            // blitz_builds: só salva quando há dados; protege valores existentes contra purge API.
             if let (Some(ref items), Some(ref runes)) = (&rec.items_json, &rec.runes_json) {
                 if let Err(e) = sqlx::query(
-                    "INSERT OR REPLACE INTO blitz_builds (champion_id, role, elo, items_json, runes_json)
-                     VALUES (?, ?, ?, ?, ?)"
+                    "INSERT INTO blitz_builds (champion_id, role, elo, items_json, runes_json, updated_at)
+                     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                     ON CONFLICT(champion_id, role, elo) DO UPDATE SET
+                       items_json = CASE WHEN excluded.items_json IS NOT NULL AND excluded.items_json != ''
+                                         THEN excluded.items_json ELSE items_json END,
+                       runes_json = CASE WHEN excluded.runes_json IS NOT NULL AND excluded.runes_json != ''
+                                         THEN excluded.runes_json ELSE runes_json END,
+                       updated_at = CURRENT_TIMESTAMP"
                 ).bind(&rec.slug).bind(&rec.role).bind(&rec.elo)
                 .bind(items).bind(runes)
                 .execute(&mut *tx).await {
-                    eprintln!("[Sync] blitz_builds insert error ({}:{}): {}", rec.slug, rec.role, e);
+                    eprintln!("[Sync] blitz_builds upsert error ({}:{}): {}", rec.slug, rec.role, e);
                 }
             }
 
-            // recommended_builds: cria o row sem runes_json — Phase 2 preencherá com
-            // os 11 IDs completos do endpoint de detalhes. Armazenar as 2 runas parciais
-            // do meta aqui causaria "Página inválida: 1 runa, 0 shards" no RuneSync.
-            if let Err(e) = sqlx::query(
-                "INSERT OR REPLACE INTO recommended_builds
-                 (champion_id, role, is_core, items_json, runes_json, summoner_spells_json)
-                 VALUES (?, ?, 1, ?, NULL, ?)"
+            // recommended_builds: INSERT OR IGNORE preserva runas salvas pela Fase 2.
+            // COALESCE protege: só atualiza se o novo valor não é nulo (regra do guia).
+            let _ = sqlx::query(
+                "INSERT OR IGNORE INTO recommended_builds
+                 (champion_id, role, elo, is_core, updated_at) VALUES (?, ?, 'CHALLENGER', 1, CURRENT_TIMESTAMP)"
             ).bind(&rec.slug).bind(&rec.role)
-            .bind(rec.items_json.as_deref())
-            .bind(rec.spells_json.as_deref())
-            .execute(&mut *tx).await {
-                eprintln!("[Sync] recommended_builds insert error ({}:{}): {}", rec.slug, rec.role, e);
+            .execute(&mut *tx).await;
+
+            if rec.items_json.is_some() || rec.spells_json.is_some() {
+                let _ = sqlx::query(
+                    "UPDATE recommended_builds SET
+                       items_json           = COALESCE(?, items_json),
+                       summoner_spells_json = COALESCE(?, summoner_spells_json),
+                       updated_at           = CURRENT_TIMESTAMP
+                     WHERE champion_id = ? AND role = ? AND elo = 'CHALLENGER'"
+                ).bind(rec.items_json.as_deref())
+                .bind(rec.spells_json.as_deref())
+                .bind(&rec.slug).bind(&rec.role)
+                .execute(&mut *tx).await;
             }
 
             for m in &rec.matchups {
@@ -475,42 +531,36 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
         println!("[Sync] Fase 1 commitada no banco.");
     }
 
-    // ── FASE 2: Detalhes — top N por role em DIAMOND, paralelo ───────────────
-    emit(app, 75, "Selecionando top campeões para detalhes...", false);
+    // ── FASE 2: Detalhes — todos os high elos × todos os campeões × todas as roles ────────────
+    // Sync puxa TUDO. Recomendações servidas do banco local com prioridade por elo.
+    // Skill order não muda por elo — qualquer high elo serve.
+    // ~4 elos × 172 camps × 5 roles ≈ 3.440 calls paralelas.
+    emit(app, 75, "Coletando detalhes para todos os campeões e elos...", false);
 
-    // Seleciona top DETAIL_LIMIT_PER_ROLE por role (maior pick_rate em DIAMOND)
-    let mut detail_map: HashMap<String, Vec<(String, i32)>> = HashMap::new(); // role -> [(slug, num_id)]
-    {
-        // Agrupa os registros DIAMOND por role ordenados por pick_rate desc
-        let mut diamond: Vec<&MetaRecord> = all_meta.iter()
-            .filter(|r| r.elo == "DIAMOND")
-            .collect();
-        diamond.sort_by(|a, b| b.pick_rate.partial_cmp(&a.pick_rate).unwrap_or(std::cmp::Ordering::Equal));
-
-        for rec in diamond {
-            let entry = detail_map.entry(rec.role.clone()).or_default();
-            if entry.len() >= DETAIL_LIMIT_PER_ROLE { continue; }
-            if let Some(&num_id) = slug_to_key.get(&rec.slug) {
-                if !entry.iter().any(|(s, _)| s == &rec.slug) {
-                    entry.push((rec.slug.clone(), num_id));
+    let detail_targets_with_elo: Vec<(String, String, i32, String)> = {
+        let mut seen: std::collections::HashSet<(String, String, String)> = std::collections::HashSet::new();
+        let mut targets = Vec::new();
+        for &elo in DETAIL_ELOS {
+            for rec in &all_meta {
+                let key = (rec.slug.clone(), rec.role.clone(), elo.to_string());
+                if seen.contains(&key) { continue; }
+                if let Some(&num_id) = slug_to_key.get(&rec.slug) {
+                    seen.insert(key);
+                    targets.push((rec.slug.clone(), rec.role.clone(), num_id, elo.to_string()));
                 }
             }
         }
-    }
-
-    // Fase 2: detalhes de CHALLENGER — builds, runas e skills com maior win rate.
-    // Wards também de CHALLENGER — referência de alto nível para ensinar progressão.
-    let detail_targets: Vec<(String, String, i32)> = detail_map.into_iter()
-        .flat_map(|(role, champs)| champs.into_iter().map(move |(slug, id)| (slug, role.clone(), id)))
-        .collect();
-    let total_details = detail_targets.len();
+        targets
+    };
+    let total_details = detail_targets_with_elo.len();
     let det_done = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let sem_det = Arc::new(Semaphore::new(DETAIL_CONCURRENCY));
     let mut det_tasks = Vec::with_capacity(total_details);
 
-    println!("[Sync] Fase 2: {} chamadas de detalhe (CHALLENGER).", total_details);
+    println!("[Sync] Fase 2: {} chamadas de detalhe ({} elos × campeões × roles).",
+        total_details, DETAIL_ELOS.len());
 
-    for (slug, role, num_id) in detail_targets {
+    for (slug, role, num_id, elo) in detail_targets_with_elo {
         let permit = sem_det.clone().acquire_owned().await.map_err(|e| e.to_string())?;
         let client = client.clone();
         let token = token.clone();
@@ -519,24 +569,24 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
 
         det_tasks.push(tokio::spawn(async move {
             let _permit = permit;
-            let url = format!("{}/api/stats/champion/details?championId={}&role={}&elo=CHALLENGER",
-                API_BASE, num_id, role);
+            let url = format!("{}/api/stats/champion/details?championId={}&role={}&elo={}",
+                API_BASE, num_id, role, elo);
             let detail: Option<ApiChampionDetails> = fetch_single(&client, &url, &token).await;
 
             let n = done_ctr.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-            if n % 5 == 0 {
+            if n % 10 == 0 {
                 let pct = 75 + (n * 20 / total_details.max(1)) as i32;
                 emit(app_handle.as_ref(), pct.min(94),
                     &format!("Detalhes: {}/{}", n, total_details), false);
             }
-            (slug, role, detail)
+            (slug, role, elo, detail)
         }));
     }
 
     let mut detail_results: Vec<(String, String, String, ApiChampionDetails)> = Vec::new();
     for task in det_tasks {
-        if let Ok((slug, role, Some(d))) = task.await {
-            detail_results.push((slug, role, "CHALLENGER".to_string(), d));
+        if let Ok((slug, role, elo, Some(d))) = task.await {
+            detail_results.push((slug, role, elo, d));
         }
     }
     println!("[Sync] Fase 2 completa: {}/{} detalhes obtidos.", detail_results.len(), total_details);
@@ -576,10 +626,13 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
                 || core.is_some() || d.jungle_path.is_some()
             {
                 let _ = sqlx::query(
-                    "INSERT OR IGNORE INTO recommended_builds (champion_id, role, elo, is_core)
-                     VALUES (?, ?, ?, 1)"
+                    "INSERT OR IGNORE INTO recommended_builds (champion_id, role, elo, is_core, updated_at)
+                     VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP)"
                 ).bind(slug).bind(role).bind(elo).execute(&mut *tx).await;
 
+                // Fase 2: apenas atualiza campos com dados reais (regra do guia — nunca sobrescreve válido com vazio).
+                // Cada campo só entra no SET se vier não-nulo da API.
+                // updated_at sempre atualizado para rastrear quando cada campeão teve dados novos (GC usa isso).
                 let mut sets = Vec::new();
                 if starting.is_some()      { sets.push("starting_items_json = ?"); }
                 if spells.is_some()        { sets.push("summoner_spells_json = ?"); }
@@ -587,8 +640,9 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
                 if runes_det.is_some()     { sets.push("runes_json = ?"); }
                 if core.is_some()          { sets.push("items_json = ?"); }
                 if d.jungle_path.is_some() { sets.push("jungle_path = ?"); }
+                sets.push("updated_at = CURRENT_TIMESTAMP");
 
-                if !sets.is_empty() {
+                if sets.len() > 1 { // >1 porque updated_at sempre está presente
                     let q = format!(
                         "UPDATE recommended_builds SET {} WHERE champion_id=? AND role=? AND elo=?",
                         sets.join(", ")
@@ -635,59 +689,71 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
         println!("[Sync] Fase 2 commitada.");
     } // tx block
 
-    // ── FASE 3: Matchups DIAMOND ──────────────────────────────────────────────
-    emit(app, 96, "Coletando pares de matchup DIAMOND...", false);
+    // ── FASE 3: Matchups por ELO (GOLD, PLATINUM, DIAMOND) ───────────────────────
+    // Inclui os ELOs do público principal (GOLD/PLATINUM) além do DIAMOND de referência.
+    emit(app, 96, "Coletando matchups GOLD + PLATINUM + DIAMOND...", false);
 
-    // Pares únicos globais — não por role para evitar duplicatas
-    // (o endpoint de matchup não usa role, então o mesmo par por role = chamada redundante)
-    let mut all_diamond_champs: Vec<(String, i32)> = Vec::new();
-    for rec in all_meta.iter().filter(|r| r.elo == "DIAMOND") {
-        if let Some(&num_id) = slug_to_key.get(&rec.slug) {
-            if !all_diamond_champs.iter().any(|(s, _)| s == &rec.slug) {
-                all_diamond_champs.push((rec.slug.clone(), num_id));
-            }
-        }
+    // Pré-carrega todos os pares existentes de uma vez para evitar N queries
+    let all_existing_raw: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT champion_id, opponent_id, elo FROM matchups"
+    ).fetch_all(pool).await.unwrap_or_default();
+
+    let mut existing_by_elo: std::collections::HashMap<String, std::collections::HashSet<(String, String)>>
+        = std::collections::HashMap::new();
+    for (champ, opp, elo) in all_existing_raw {
+        existing_by_elo.entry(elo).or_default().insert((champ, opp));
     }
 
-    // Carrega pares já no SQLite para pular chamadas desnecessárias
-    let existing_pairs: std::collections::HashSet<(String, String)> = {
-        let rows: Vec<(String, String)> = sqlx::query_as(
-            "SELECT champion_id, opponent_id FROM matchups WHERE elo = 'DIAMOND'"
-        ).fetch_all(pool).await.unwrap_or_default();
-        rows.into_iter().collect()
-    };
-    println!("[Sync] Fase 3: {} pares já no banco.", existing_pairs.len() / 2);
+    struct MatchupTask { slug_a: String, id_a: i32, slug_b: String, id_b: i32, elo: String }
+    let mut all_tasks: Vec<MatchupTask> = Vec::new();
 
-    struct MatchupTarget { slug_a: String, id_a: i32, slug_b: String, id_b: i32 }
-    let mut pairs: Vec<MatchupTarget> = Vec::new();
-    for i in 0..all_diamond_champs.len() {
-        for j in (i + 1)..all_diamond_champs.len() {
-            let (slug_a, id_a) = &all_diamond_champs[i];
-            let (slug_b, id_b) = &all_diamond_champs[j];
-            // Pula se já temos os dois sentidos no banco
-            if existing_pairs.contains(&(slug_a.clone(), slug_b.clone()))
-                && existing_pairs.contains(&(slug_b.clone(), slug_a.clone())) {
-                continue;
+    for &matchup_elo in MATCHUP_ELOS {
+        let empty_set = std::collections::HashSet::new();
+        let existing  = existing_by_elo.get(matchup_elo).unwrap_or(&empty_set);
+
+        // Campeões únicos que apareceram nesse ELO no meta fetch
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let elo_champs: Vec<(String, i32)> = all_meta.iter()
+            .filter(|r| r.elo == matchup_elo)
+            .filter_map(|r| {
+                if seen.insert(r.slug.clone()) {
+                    slug_to_key.get(&r.slug).map(|&k| (r.slug.clone(), k))
+                } else { None }
+            })
+            .collect();
+
+        let mut new_pairs = 0usize;
+        for i in 0..elo_champs.len() {
+            for j in (i + 1)..elo_champs.len() {
+                let (slug_a, id_a) = &elo_champs[i];
+                let (slug_b, id_b) = &elo_champs[j];
+                if existing.contains(&(slug_a.clone(), slug_b.clone()))
+                    && existing.contains(&(slug_b.clone(), slug_a.clone())) {
+                    continue;
+                }
+                all_tasks.push(MatchupTask {
+                    slug_a: slug_a.clone(), id_a: *id_a,
+                    slug_b: slug_b.clone(), id_b: *id_b,
+                    elo: matchup_elo.to_string(),
+                });
+                new_pairs += 1;
             }
-            pairs.push(MatchupTarget {
-                slug_a: slug_a.clone(), id_a: *id_a,
-                slug_b: slug_b.clone(), id_b: *id_b,
-            });
         }
+        println!("[Sync] Fase 3 [{}]: {} campeões, {} novos pares.", matchup_elo, elo_champs.len(), new_pairs);
     }
-    let total_pairs = pairs.len();
-    println!("[Sync] Fase 3: {} novos pares para buscar.", total_pairs);
 
-    if total_pairs == 0 {
+    let total_tasks = all_tasks.len();
+    println!("[Sync] Fase 3 total: {} pares a buscar ({} ELOs).", total_tasks, MATCHUP_ELOS.len());
+    if total_tasks == 0 {
         emit(app, 99, "Matchups já atualizados.", false);
     }
 
     let sem_mu  = Arc::new(Semaphore::new(MATCHUP_CONCURRENCY));
     let mu_done = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let mut mu_tasks: Vec<tokio::task::JoinHandle<Option<(String, String, ApiMatchupData)>>>
-        = Vec::with_capacity(total_pairs);
+    let mut mu_tasks: Vec<tokio::task::JoinHandle<Option<(String, String, String, ApiMatchupData)>>>
+        = Vec::with_capacity(total_tasks);
 
-    for pair in pairs {
+    for task in all_tasks {
         let permit     = sem_mu.clone().acquire_owned().await.map_err(|e| e.to_string())?;
         let client     = client.clone();
         let token      = token.clone();
@@ -697,47 +763,50 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
         mu_tasks.push(tokio::spawn(async move {
             let _permit = permit;
             let url = format!(
-                "{}/api/stats/matchup?championAId={}&championBId={}",
-                API_BASE, pair.id_a, pair.id_b
+                "{}/api/stats/matchup?championAId={}&championBId={}&elo={}",
+                API_BASE, task.id_a, task.id_b, task.elo
             );
             let result: Option<ApiMatchupData> = fetch_single(&client, &url, &token).await;
             let n = done_ctr.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-            if n % 10 == 0 || n == total_pairs {
-                let pct = 96 + (n * 3 / total_pairs.max(1)) as i32;
-                emit(app_handle.as_ref(), pct.min(99), &format!("Matchups: {}/{}", n, total_pairs), false);
+            if n % 20 == 0 || n == total_tasks {
+                let pct = 96 + (n * 3 / total_tasks.max(1)) as i32;
+                emit(app_handle.as_ref(), pct.min(99),
+                    &format!("Matchups: {}/{}", n, total_tasks), false);
             }
-            result.map(|d| (pair.slug_a, pair.slug_b, d))
+            result.map(|d| (task.slug_a, task.slug_b, task.elo, d))
         }));
     }
 
-    let mut matchup_rows: Vec<(String, String, ApiMatchupData)> = Vec::new();
-    for task in mu_tasks {
-        if let Ok(Some(row)) = task.await { matchup_rows.push(row); }
+    let mut matchup_rows: Vec<(String, String, String, ApiMatchupData)> = Vec::new();
+    for mu_task in mu_tasks {
+        if let Ok(Some(row)) = mu_task.await { matchup_rows.push(row); }
     }
-    println!("[Sync] Fase 3: {}/{} matchups obtidos.", matchup_rows.len(), total_pairs);
+    println!("[Sync] Fase 3: {}/{} matchups obtidos.", matchup_rows.len(), total_tasks);
 
     emit(app, 99, "Salvando matchups no banco...", false);
     {
         let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
-        for (slug_a, slug_b, d) in &matchup_rows {
+        for (slug_a, slug_b, elo, d) in &matchup_rows {
             if d.games_played < MIN_MATCHUP_GAMES { continue; }
-            let wr_a = d.win_rate_a / 100.0;
-            let wr_b = d.win_rate_b / 100.0;
+            let wr_a   = d.win_rate_a / 100.0;
+            let wr_b   = d.win_rate_b / 100.0;
             let wins_a = (d.games_played as f64 * wr_a).round() as i32;
             let wins_b = d.games_played as i32 - wins_a;
 
-            if let Err(e) = sqlx::query(
-                "INSERT OR REPLACE INTO matchups (champion_id, opponent_id, elo, difficulty, win_rate, games_count, wins_count) VALUES (?, ?, 'DIAMOND', ?, ?, ?, ?)"
-            ).bind(slug_a).bind(slug_b).bind(calculate_difficulty(wr_a)).bind(wr_a)
-            .bind(d.games_played as i32).bind(wins_a).execute(&mut *tx).await {
-                eprintln!("[Sync] matchup error ({}→{}): {}", slug_a, slug_b, e);
-            }
-
-            if let Err(e) = sqlx::query(
-                "INSERT OR REPLACE INTO matchups (champion_id, opponent_id, elo, difficulty, win_rate, games_count, wins_count) VALUES (?, ?, 'DIAMOND', ?, ?, ?, ?)"
-            ).bind(slug_b).bind(slug_a).bind(calculate_difficulty(wr_b)).bind(wr_b)
-            .bind(d.games_played as i32).bind(wins_b).execute(&mut *tx).await {
-                eprintln!("[Sync] matchup error ({}→{}): {}", slug_b, slug_a, e);
+            for (sa, sb, wr, wins) in [
+                (slug_a, slug_b, wr_a, wins_a),
+                (slug_b, slug_a, wr_b, wins_b),
+            ] {
+                if let Err(e) = sqlx::query(
+                    "INSERT OR REPLACE INTO matchups \
+                     (champion_id, opponent_id, elo, difficulty, win_rate, games_count, wins_count) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?)"
+                ).bind(sa).bind(sb).bind(elo)
+                 .bind(calculate_difficulty(wr)).bind(wr)
+                 .bind(d.games_played as i32).bind(wins)
+                 .execute(&mut *tx).await {
+                    eprintln!("[Sync] matchup error ({}→{}@{}): {}", sa, sb, elo, e);
+                }
             }
         }
         tx.commit().await.map_err(|e| e.to_string())?;
@@ -750,12 +819,61 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
         "INSERT OR REPLACE INTO sync_metadata (key, value) VALUES ('vercel_last_sync', ?)"
     ).bind(now.to_string()).execute(pool).await;
 
+    // ── Garbage Collection — regra do guia: DB < 50MB, dados > 30 dias removidos ─
+    // Remove entradas que não foram atualizadas nos últimos 30 dias.
+    // Protege dados recentes: COALESCE garante que apenas rows com updated_at
+    // antigo (pré-migração ou stale) sejam removidos, não rows sem a coluna.
+    run_gc_cleanup(pool).await;
+
     // Restaura modo síncrono padrão
     let _ = sqlx::query("PRAGMA synchronous=FULL").execute(pool).await;
 
     emit(app, 100, "Sincronização concluída com sucesso!", true);
     println!("[Sync] Finalizado: {} meta + {} detalhes + {} matchup pares.", all_meta.len(), detail_results.len(), matchup_rows.len());
     Ok(())
+}
+
+/// Remove dados antigos do SQLite para manter o arquivo abaixo de 50MB.
+/// Regra: entradas não atualizadas há mais de 30 dias são descartadas.
+/// VACUUM libera espaço no disco após a remoção.
+async fn run_gc_cleanup(pool: &Pool<Sqlite>) {
+    let threshold = "datetime('now', '-14 days')";
+
+    let rb: Result<sqlx::sqlite::SqliteQueryResult, _> = sqlx::query(&format!(
+        "DELETE FROM recommended_builds WHERE updated_at IS NOT NULL AND updated_at < {}", threshold
+    )).execute(pool).await;
+
+    let bb: Result<sqlx::sqlite::SqliteQueryResult, _> = sqlx::query(&format!(
+        "DELETE FROM blitz_builds WHERE updated_at IS NOT NULL AND updated_at < {}", threshold
+    )).execute(pool).await;
+
+    let bt: Result<sqlx::sqlite::SqliteQueryResult, _> = sqlx::query(&format!(
+        "DELETE FROM blitz_tier_list WHERE updated_at IS NOT NULL AND updated_at < {}", threshold
+    )).execute(pool).await;
+
+    // matchups: Remove pares não atualizados (a tabela cresce muito com ~165^2 pares)
+    let mt: Result<sqlx::sqlite::SqliteQueryResult, _> = sqlx::query(
+        "DELETE FROM matchups WHERE rowid IN (
+           SELECT m.rowid FROM matchups m
+           LEFT JOIN blitz_tier_list b ON b.champion_id = m.champion_id
+           WHERE b.champion_id IS NULL
+         )"
+    ).execute(pool).await;
+
+    let rb_del = rb.map(|r| r.rows_affected()).unwrap_or(0);
+    let bb_del = bb.map(|r| r.rows_affected()).unwrap_or(0);
+    let bt_del = bt.map(|r| r.rows_affected()).unwrap_or(0);
+    let mt_del = mt.map(|r| r.rows_affected()).unwrap_or(0);
+
+    if rb_del + bb_del + bt_del + mt_del > 0 {
+        println!("[GC] Removido: {} builds, {} blitz_builds, {} tier_list, {} matchups órfãos.",
+            rb_del, bb_del, bt_del, mt_del);
+        // VACUUM libera espaço no disco (executa fora de transação)
+        let _ = sqlx::query("VACUUM").execute(pool).await;
+        println!("[GC] VACUUM concluído — espaço no disco liberado.");
+    } else {
+        println!("[GC] Nenhum dado stale encontrado.");
+    }
 }
 
 #[tauri::command]
