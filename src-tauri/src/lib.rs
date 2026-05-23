@@ -127,7 +127,7 @@ pub fn run() {
             let kokoro_status = std::sync::Arc::new(std::sync::Mutex::new("loading".to_string()));
             let kokoro_status_clone = kokoro_status.clone();
             app.manage(voice::KokoroState {
-                engine: tokio::sync::Mutex::new(None::<kokoro_micro::TtsEngine>),
+                engine: std::sync::Arc::new(std::sync::Mutex::new(None::<kokoro_micro::TtsEngine>)),
                 status: kokoro_status,
             });
 
@@ -161,8 +161,9 @@ pub fn run() {
                         println!("[Kokoro] Aquecimento concluído em {:?}!", start_warmup.elapsed());
 
                         if let Some(state) = handle_for_kokoro.try_state::<voice::KokoroState>() {
-                            let mut lock = state.engine.lock().await;
-                            *lock = Some(engine);
+                            if let Ok(mut lock) = state.engine.lock() {
+                                *lock = Some(engine);
+                            }
                         }
                         if let Ok(mut status_lock) = kokoro_status_clone.lock() {
                             *status_lock = "ready".to_string();

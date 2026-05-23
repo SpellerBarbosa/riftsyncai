@@ -316,6 +316,9 @@ onMounted(() => {
               <button class="btn-secondary" @click="testVoice" :disabled="voiceCoach.kokoroStatus.value !== 'ready'">
                 🔊 Testar Voz do Coach
               </button>
+              <div v-if="voiceCoach.lastVoiceError.value" style="margin-top: 6px; font-size: 10px; color: #ff4e4e; background: rgba(255,78,78,0.08); border: 1px solid rgba(255,78,78,0.3); padding: 6px 8px; border-radius: 4px; word-break: break-all;">
+                ❌ Erro de voz: {{ voiceCoach.lastVoiceError.value }}
+              </div>
               <button class="btn-secondary" @click="testAudioDevice" :disabled="audioTestLoading" style="margin-top: 6px; opacity: 0.8;">
                 🔧 Diagnosticar Saída de Áudio
               </button>

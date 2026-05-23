@@ -1,7 +1,7 @@
 use tauri::Manager;
 
 pub struct KokoroState {
-    pub engine: tokio::sync::Mutex<Option<kokoro_micro::TtsEngine>>,
+    pub engine: std::sync::Arc<std::sync::Mutex<Option<kokoro_micro::TtsEngine>>>,
     pub status: std::sync::Arc<std::sync::Mutex<String>>,
 }
 
@@ -300,28 +300,35 @@ pub(crate) async fn play_voice(
 
     // 4. Cache MISS: Gerar nova voz neural via Kokoro ONNX
     println!("[Kokoro Cache DB] MISS. Sintetizando voz neural local via ONNX...");
-    let mut engine_lock = state.engine.lock().await;
-    let engine = engine_lock.as_mut().ok_or_else(|| {
+
+    // Verifica status antes de bloquear uma thread de spawn
+    {
         let status = state.status.lock().unwrap().clone();
-        if status.starts_with("error") {
-            format!("O motor de voz Kokoro falhou ao carregar: {}", status)
-        } else {
-            "O motor de voz Kokoro ainda está sendo inicializado/baixado. Por favor, aguarde alguns instantes.".to_string()
+        if status != "ready" {
+            return Err(if status.starts_with("error") {
+                format!("Motor de voz falhou ao carregar: {}", status)
+            } else {
+                "Motor de voz Kokoro ainda está inicializando. Aguarde alguns instantes.".to_string()
+            });
         }
-    })?;
+    }
+
+    // A síntese ONNX é CPU-heavy e síncrona — nunca deve bloquear o runtime tokio.
+    // Clonamos o Arc antes de mover para a thread bloqueante.
+    let engine_arc = state.engine.clone();
+    let text_for_synth = text.clone();
+    let voice_str = kokoro_voice.to_string();
+    let speed_val = speed;
 
     let start_time = std::time::Instant::now();
-    let raw_samples = engine.synthesize_with_options(
-        &text,
-        Some(kokoro_voice),
-        speed,
-        1.0, // gain
-        Some("pt-br")
-    ).map_err(|e| format!("Erro na síntese Kokoro: {}", e))?;
-
-    // Libera o lock do Kokoro assim que a síntese termina. As etapas seguintes
-    // (escrita em disco, SQLite e playback) não precisam bloquear novas sínteses.
-    drop(engine_lock);
+    let raw_samples = tokio::task::spawn_blocking(move || -> Result<Vec<f32>, String> {
+        let mut lock = engine_arc.lock()
+            .map_err(|_| "Engine mutex envenenado (poison)".to_string())?;
+        let engine = lock.as_mut()
+            .ok_or_else(|| "Motor de voz não está pronto (engine=None após status=ready)".to_string())?;
+        engine.synthesize_with_options(&text_for_synth, Some(&voice_str), speed_val, 1.0, Some("pt-br"))
+            .map_err(|e| format!("Erro na síntese Kokoro: {}", e))
+    }).await.map_err(|e| format!("Erro interno no thread de síntese: {}", e))??;
 
     // Normalização de pico: evita hard-clipping (som estourado) quando o Kokoro
     // gera amostras com amplitude > 1.0. Escala para máx 0.88 sem alterar o timbre.

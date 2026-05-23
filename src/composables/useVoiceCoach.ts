@@ -32,6 +32,7 @@ const voiceWeights = ref({
 });
 const isSpeaking = ref(false);
 const kokoroStatus = ref<string>("loading"); // "loading", "ready", "error: ..."
+const lastVoiceError = ref<string | null>(null);
 
 
 // Fila de falas para processamento sequencial caso múltiplos eventos ocorram
@@ -267,8 +268,11 @@ export function useVoiceCoach() {
             volume: voiceVolume.value,
             speed: voiceRate.value,
           });
+          lastVoiceError.value = null;
         } catch (err) {
-          console.error("[useVoiceCoach:Rust] Erro ao reproduzir fala Kokoro nativa:", err);
+          const errMsg = String(err);
+          console.error("[useVoiceCoach:Rust] Erro ao reproduzir fala Kokoro nativa:", errMsg);
+          lastVoiceError.value = errMsg;
         }
       }
     }
@@ -329,6 +333,7 @@ export function useVoiceCoach() {
     voiceWeights,
     isSpeaking,
     kokoroStatus,
+    lastVoiceError,
     checkKokoroStatus,
     speak,
     stop,
