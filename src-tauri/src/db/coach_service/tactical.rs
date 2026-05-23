@@ -266,13 +266,13 @@ pub async fn get_tactical_tips_command(
                         .execute(pool).await;
                     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM groq_cache")
                         .fetch_one(pool).await.unwrap_or(0);
-                    if count > 300 {
+                    if count > 2000 {
                         let _ = sqlx::query(
                             "DELETE FROM groq_cache WHERE cache_key IN
                              (SELECT cache_key FROM groq_cache ORDER BY created_at ASC LIMIT ?)"
-                        ).bind(count - 300).execute(pool).await;
+                        ).bind(count - 2000).execute(pool).await;
                     }
-                    println!("[Coach:Groq] Cacheado 14 dias — {} entradas no cache.", count.min(300));
+                    println!("[Coach:Groq] Cacheado 14 dias — {} entradas no cache.", count.min(2000));
                     return Ok(parsed);
                 }
             }
