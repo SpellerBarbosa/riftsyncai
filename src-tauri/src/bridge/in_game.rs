@@ -600,11 +600,14 @@ pub(super) async fn handle_in_game_coaching(
                 }
             }
 
-            // ── 3. Ward map genérico a cada 3 minutos (sem contexto de objetivo) ──
-            let ward_cooldown = 180.0;
-            let ward_due = game_time >= 60.0
+            // ── 3. Ward map genérico a cada 4 minutos — só se não houver tip ativa ──
+            // Não dispara junto com flashcard para não poluir a tela do jogador.
+            let ward_cooldown = 240.0;
+            let tip_recently = (game_time - *last_tip_emit_time) < 30.0;
+            let ward_due = game_time >= 120.0
                 && (game_time - coach_state.last_ward_map_time) >= ward_cooldown
-                && !db_key.is_empty();
+                && !db_key.is_empty()
+                && !tip_recently;
 
             if ward_due {
                 let wards = db::coach_service::get_ward_suggestions(
@@ -620,6 +623,7 @@ pub(super) async fn handle_in_game_coaching(
                         "phase": phase,
                         "team_side": my_team_side,
                         "wards": wards,
+                        "display_secs": 8,
                     }));
                     println!("[WardMap] {} pontos emitidos para {}/{} em {:.0}s",
                         wards.len(), champion_for_runes, role_for_runes, game_time);

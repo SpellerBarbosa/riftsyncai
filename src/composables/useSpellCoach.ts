@@ -259,15 +259,20 @@ export function useSpellCoach() {
 
   /// Abre ou fecha a janela do Ward Map.
   /// Cria a janela dinamicamente na primeira vez — sem setFocus() para não pausar o jogo.
+  /// Posicionada no canto superior direito para não cobrir o minimap do LoL (bottom-right).
   const toggleWardMap = async (forceState?: boolean) => {
     try {
       let win = await WebviewWindow.getByLabel("ward-map");
       if (!win) {
+        // Detecta resolução da tela para posicionar no canto superior direito
+        const screenW = window.screen.width || 1920;
         win = new WebviewWindow("ward-map", {
           url: "index.html",
           title: "Ward Map",
           width: 280,
           height: 360,
+          x: screenW - 288,
+          y: 60,
           transparent: true,
           decorations: false,
           alwaysOnTop: true,
@@ -917,7 +922,9 @@ export function useSpellCoach() {
         try {
           await emit("ward-map-data-updated", wardMapData.value);
         } catch (_) {}
-        setTimeout(() => toggleWardMap(false), 15000);
+        // Objetivo: 10s (urgente), genérico: 8s
+        const displayMs = d.objective ? 10000 : (d.display_secs ? d.display_secs * 1000 : 8000);
+        setTimeout(() => toggleWardMap(false), displayMs);
         console.log('[WardMap] Recebido:', d.champion, d.role, d.wards?.length, 'pontos');
       });
     }
