@@ -117,11 +117,19 @@ pub async fn get_groq_tip_internal(pool: &Pool<Sqlite>, prompt: String) -> Resul
     ).fetch_optional(pool).await.unwrap_or(None);
     let api_key = match api_key_raw {
         Some(k) if !k.trim().is_empty() => k,
-        _ => match std::env::var("GROQ_API_KEY") {
-            Ok(k) if !k.trim().is_empty() => k,
-            _ => return Err("Chave Groq não configurada".to_string()),
-        },
+        _ => {
+            // Prioridade: env var runtime → chave embutida no binário (option_env! em build time)
+            if let Ok(k) = std::env::var("GROQ_API_KEY") {
+                if !k.trim().is_empty() { k }
+                else { option_env!("GROQ_API_KEY").unwrap_or("").to_string() }
+            } else {
+                option_env!("GROQ_API_KEY").unwrap_or("").to_string()
+            }
+        }
     };
+    if api_key.trim().is_empty() {
+        return Err("Chave Groq não configurada".to_string());
+    }
 
     let model_raw: Option<String> = sqlx::query_scalar::<_, String>(
         "SELECT value FROM sync_metadata WHERE key = 'groq_model'"
@@ -143,7 +151,7 @@ pub async fn get_groq_tip_internal(pool: &Pool<Sqlite>, prompt: String) -> Resul
             "messages": [
                 {
                     "role": "system",
-                    "content": "Você é o Spell Coach IA — coach de League of Legends. REGRAS: (1) Responda APENAS com o JSON solicitado, sem texto extra. (2) Use somente habilidades do contexto. (3) MÁXIMO 10 PALAVRAS por valor de campo."
+                    "content": "Você é o Spell Coach IA, coach de League of Legends para jogadores brasileiros.\n\nREGRAS ABSOLUTAS — viole qualquer uma e a resposta é inválida:\n1. Responda SOMENTE com o JSON solicitado. Nenhum texto fora das chaves {}.\n2. Escreva SEMPRE em Português Brasileiro.\n3. MÁXIMO 10 palavras por campo.\n4. PROIBIDO inventar mecânicas, habilidades ou interações de itens não mencionados no CONTEXTO.\n5. Se não souber com certeza, use conselho genérico de posicionamento (ex: 'Jogue atrás da frontline e safe.').\n6. Cada campo deve ser uma ação concreta e direta — evite frases vagas como 'seja cuidadoso'.\n7. Use terminologia BR padrão: gank, ward, CS, roam, farm, poke, engage, peel, stun."
                 },
                 {
                     "role": "user",
