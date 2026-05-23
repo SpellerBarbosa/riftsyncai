@@ -131,6 +131,17 @@ pub fn run() {
                 status: kokoro_status,
             });
 
+            // Aponta o eSpeak-ng para os dados bundled no instalador.
+            // Sem isso o build de distribuição falha com "Failed to initialize eSpeak-ng".
+            // PER_ESPEAKNG_DATA_DIRECTORY deve ser o diretório PAI que contém espeak-ng-data/.
+            if let Ok(resource_dir) = handle.path().resource_dir() {
+                let espeak_parent = resource_dir.to_string_lossy().to_string();
+                unsafe { std::env::set_var("PER_ESPEAKNG_DATA_DIRECTORY", &espeak_parent); }
+                println!("[eSpeak] PER_ESPEAKNG_DATA_DIRECTORY={}", espeak_parent);
+            } else {
+                eprintln!("[eSpeak] AVISO: não foi possível obter resource_dir para configurar PER_ESPEAKNG_DATA_DIRECTORY");
+            }
+
             // Garante que o ONNX Runtime use todos os cores disponíveis via OpenMP.
             // Deve ser definido ANTES de qualquer Session ser criada.
             let cpu_count = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);

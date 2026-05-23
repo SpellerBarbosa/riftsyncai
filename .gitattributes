@@ -1,0 +1,3 @@
+# Todos os arquivos do espeak-ng-data são tratados como binários
+# para evitar conversão LF->CRLF que corromperia dicionários e configs
+src-tauri/resources/espeak-ng-data/** binary
