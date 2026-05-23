@@ -71,8 +71,17 @@ export function useVoiceCoach() {
     clean = clean.replace(/\bADC\b/gi, "adê cê");
     clean = clean.replace(/\bSUP\b/gi, "suporte");
 
+    // Símbolos de fluxo/sequência — lidos literalmente pelo Kokoro
+    clean = clean.replace(/→/g, ", depois ");
+    clean = clean.replace(/←/g, ", antes ");
+    clean = clean.replace(/↔/g, " ou ");
+    clean = clean.replace(/[★☆▲▼●◆■□]/g, "");
+    clean = clean.replace(/[/\\]/g, " ou ");
+
     // Emojis decorativos
     clean = clean.replace(/[\u{1F300}-\u{1F9FF}]|[\u{1F600}-\u{1F64F}]|[\u{2700}-\u{27BF}]/gu, "");
+    // Limpa espaços e pontuação duplicada resultantes das substituições acima
+    clean = clean.replace(/,\s*,/g, ",");
     clean = clean.replace(/\s+/g, " ");
     clean = clean.replace(/\.+/g, ".");
 
