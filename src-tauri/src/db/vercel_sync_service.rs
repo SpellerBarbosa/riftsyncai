@@ -17,8 +17,8 @@ const ROLES: &[&str] = &["TOP","JUNGLE","MID","ADC","UTILITY"];
 // Skill order não muda por elo — qualquer um desses já basta.
 // ~4 elos × 172 camps × 5 roles ≈ 3.440 calls de detalhe.
 const DETAIL_ELOS: &[&str]   = &["CHALLENGER", "GRANDMASTER", "MASTER", "DIAMOND"];
-// ELOs para matchups — inclui o público principal (GOLD, PLATINUM) além do DIAMOND
-const MATCHUP_ELOS: &[&str]  = &["GOLD", "PLATINUM", "DIAMOND"];
+// ELOs para matchups — high elo como referência de coaching
+const MATCHUP_ELOS: &[&str]  = &["CHALLENGER", "GRANDMASTER", "MASTER", "DIAMOND"];
 
 // Peso de prioridade para queries de recomendação (menor = melhor).
 // Usado em ORDER BY para sempre servir o dado do elo mais alto disponível.
