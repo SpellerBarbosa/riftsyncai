@@ -140,7 +140,7 @@
       "endpoints": [
         "https://github.com/SpellerBarbosa/riftsyncai/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgxMDFCNUNCQ0M1NUM2MEQKUldRTnhsWE15N1VCZ2QwQWRMUXdkeklsemZqZkQxdTdRUnpvU2h5L3liU3NMUStmbm5YejlPZ3MK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYxMkExNkJDQzdBQUMyMTEKUldRUndxckh2QllxWVZEaFFLOFRDWW9yVGtja1VicTJ5bmFJeUFmY1pmZnhRa1RnV0VOK21lSWgK",
       "windows": {
         "installMode": "passive"
       }
