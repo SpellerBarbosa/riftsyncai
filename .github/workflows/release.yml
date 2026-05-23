@@ -1,6 +1,5 @@
 name: Release
 
-# Dispara quando você faz push de uma tag no formato v1.2.3
 on:
   push:
     tags:
@@ -9,61 +8,54 @@ on:
 jobs:
   release:
     permissions:
-      contents: write   # necessário para criar GitHub Release
+      contents: write
 
     strategy:
       fail-fast: false
       matrix:
-        platform: [windows-latest]   # adicione macos-latest se quiser macOS
+        platform: [windows-latest]
 
     runs-on: ${{ matrix.platform }}
 
     steps:
-      # 1. Checkout do código
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. Node.js (para o build do frontend Vue)
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
           cache: npm
 
-      # 3. Rust toolchain estável
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # 4. Cache do Cargo (evita recompilar tudo a cada release)
       - name: Cache Cargo
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
 
-      # 5. Instala dependências do frontend
       - name: Install frontend dependencies
         run: npm ci
 
-      # 6. Build + cria GitHub Release + gera latest.json para o updater
       - name: Build and release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Chave privada para assinar os artefatos do updater.
-          # Adicione estes dois secrets no seu repositório GitHub:
-          #   Settings → Secrets → Actions → New repository secret
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Embutido no binario via option_env! — sem isso o sync nao funciona no app final
+          API_ACCESS_TOKEN: ${{ secrets.API_ACCESS_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}          # ex: v0.2.0
+          tagName: ${{ github.ref_name }}
           releaseName: 'Spell Coach IA ${{ github.ref_name }}'
           releaseBody: |
-            ## O que há de novo
+            ## O que ha de novo
 
-            Veja o [histórico de commits](https://github.com/SpellerBarbosa/riftsyncai/commits/${{ github.ref_name }}) para detalhes.
+            Veja o [historico de commits](https://github.com/SpellerBarbosa/riftsyncai/commits/${{ github.ref_name }}) para detalhes.
 
-            ### Instalação
-            Baixe o arquivo `.exe` abaixo e execute. O app atualiza automaticamente nas próximas versões.
+            ### Instalacao
+            Baixe o arquivo `.exe` abaixo e execute. O app atualiza automaticamente nas proximas versoes.
           releaseDraft: false
           prerelease: ${{ startsWith(github.ref_name, 'v0.') }}
-          includeUpdaterJson: true   # gera latest.json para o auto-updater
+          includeUpdaterJson: true
