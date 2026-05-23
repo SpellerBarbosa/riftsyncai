@@ -627,6 +627,18 @@ export function useSpellCoach() {
     }
   });
 
+  // Quando o Kokoro fica pronto durante o Champ Select, re-fala as dicas que foram
+  // ignoradas enquanto o motor ainda estava carregando (timing issue na inicialização).
+  watch(kokoroStatus, async (newStatus, oldStatus) => {
+    if (windowLabel.value !== 'main') return;
+    if (newStatus !== 'ready' || oldStatus === 'ready') return;
+    const isChampSelect = gameFlowState.value === 'CHAMP SELECT' || gameFlowState.value === 'CHAMPSELECT';
+    if (!isChampSelect || !activeChampion.value || !champSelectSessionActive) return;
+    console.log('[useSpellCoach] Kokoro ficou pronto durante o Champ Select — re-buscando dicas táticas.');
+    lastAutoTacticalTipChamp.value = null; // reseta guard para permitir re-fetch
+    await fetchAndShowTacticalTips();
+  });
+
   // Observa mudanças no estado do jogo (IDLE -> CHAMP SELECT -> GAME)
   let groqInGameInterval: ReturnType<typeof setInterval> | null = null;
   let groqGameStartTimeout: ReturnType<typeof setTimeout> | null = null;
