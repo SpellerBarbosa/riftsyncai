@@ -256,12 +256,23 @@ pub async fn get_tactical_tips_command(
                     && parsed.item_back.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
                 if has_content {
                     parsed.groq_exhausted = false;
-                    // Salva no cache por 14 dias — mesmo matchup/item não precisa chamar Groq de novo
+                    // Salva no cache por 14 dias
                     let _ = sqlx::query(
                         "INSERT OR REPLACE INTO groq_cache (cache_key, response_json, expires_at)
                          VALUES (?, ?, datetime('now', '+14 days'))"
                     ).bind(&groq_cache_key).bind(&cleaned).execute(pool).await;
-                    println!("[Coach:Groq] Tip gerado e cacheado por 14 dias ({}).", groq_cache_key);
+                    // Limpa expirados + mantém máx 300 entradas (~150KB de texto)
+                    let _ = sqlx::query("DELETE FROM groq_cache WHERE expires_at <= datetime('now')")
+                        .execute(pool).await;
+                    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM groq_cache")
+                        .fetch_one(pool).await.unwrap_or(0);
+                    if count > 300 {
+                        let _ = sqlx::query(
+                            "DELETE FROM groq_cache WHERE cache_key IN
+                             (SELECT cache_key FROM groq_cache ORDER BY created_at ASC LIMIT ?)"
+                        ).bind(count - 300).execute(pool).await;
+                    }
+                    println!("[Coach:Groq] Cacheado 14 dias — {} entradas no cache.", count.min(300));
                     return Ok(parsed);
                 }
             }
