@@ -110,7 +110,7 @@ const minimize = () => appWindow.minimize();
 const close = async () => {
   isClosing.value = true;
   saveVoiceSettings();
-  await saveGroqSettings();
+  await loadGroqSettings();
   setTimeout(() => { appWindow.close(); }, 300);
 };
 

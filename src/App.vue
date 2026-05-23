@@ -46,7 +46,6 @@ const {
   postGameLoading,
   openSettings,
   openDataViewer,
-  toggleFlashcard,
   showPostGame,
 } = useSpellCoach();
 
