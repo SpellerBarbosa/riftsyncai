@@ -146,7 +146,7 @@ onMounted(async () => {
     const data: any = event.payload;
     let role = null;
     let elo = data.elo || null;
-    
+
     if (data.state && data.state.ChampSelect) {
       role = data.state.ChampSelect.role;
     }
@@ -154,7 +154,20 @@ onMounted(async () => {
     if (data.championName) {
       updateBuild(data.championName, role, elo);
     } else if (data.gameData) {
-      let champ = data.gameData.activePlayer?.championName || data.gameData.allPlayers?.find((p: any) => p.summonerName === data.gameData.activePlayer?.summonerName)?.championName;
+      // activePlayer.championName pode estar vazio em versões recentes do LoL.
+      // Fallback: busca o campeão em allPlayers combinando summonerName com suporte
+      // ao formato Riot ID (gameName#tagLine vs gameName).
+      const activeSumm: string = data.gameData.activePlayer?.summonerName || '';
+      const activeBase = activeSumm.split('#')[0]?.toLowerCase() || '';
+      let champ: string = data.gameData.activePlayer?.championName || '';
+      if (!champ && activeSumm) {
+        const match = (data.gameData.allPlayers as any[] | undefined)?.find((p: any) => {
+          const pName: string = p.summonerName || '';
+          const pBase = pName.split('#')[0]?.toLowerCase() || '';
+          return pName === activeSumm || (activeBase && pBase === activeBase);
+        });
+        champ = match?.championName || '';
+      }
       if (champ) {
         updateBuild(champ, role, elo);
       }

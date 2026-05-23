@@ -258,7 +258,7 @@ export function useSpellCoach() {
   };
 
   /// Abre ou fecha a janela do Ward Map.
-  /// PERFORMANCE: sem setFocus() e com skipTaskbar para não interferir no jogo.
+  /// Cria a janela dinamicamente na primeira vez — sem setFocus() para não pausar o jogo.
   const toggleWardMap = async (forceState?: boolean) => {
     try {
       let win = await WebviewWindow.getByLabel("ward-map");
@@ -266,21 +266,21 @@ export function useSpellCoach() {
         win = new WebviewWindow("ward-map", {
           url: "index.html",
           title: "Ward Map",
-          width: 360,
-          height: 280,
+          width: 280,
+          height: 360,
           transparent: true,
           decorations: false,
           alwaysOnTop: true,
           skipTaskbar: true,
           visible: false,
         });
-        await new Promise(r => setTimeout(r, 200));
+        // Aguarda a janela carregar antes de mostrar/emitir dados
+        await new Promise(r => setTimeout(r, 400));
       }
       const isVisible = await win.isVisible();
       const shouldShow = forceState !== undefined ? forceState : !isVisible;
       if (shouldShow) {
         await win.show();
-        // NÃO chamamos setFocus() — isso pausaria o jogo!
       } else if (isVisible) {
         await win.hide();
       }
@@ -545,14 +545,16 @@ export function useSpellCoach() {
       }
 
       // Controla a exibição automática da barra horizontal de builds (Build Bar)
-      const buildWin = await WebviewWindow.getByLabel("build");
-      if (buildWin) {
-        if (isGameActive) {
-          await buildWin.show();
-        } else {
-          await buildWin.hide();
+      try {
+        const buildWin = await WebviewWindow.getByLabel("build");
+        if (buildWin) {
+          if (isGameActive) {
+            await buildWin.show();
+          } else {
+            await buildWin.hide();
+          }
         }
-      }
+      } catch (_) {}
     } catch (e) {
       console.error("Error handling game state change:", e);
     }
@@ -798,6 +800,14 @@ export function useSpellCoach() {
   let flashcardTimeout: any = null;
 
   onMounted(async () => {
+    // Janelas de display-only: passa cliques ao jogo (não captura mouse)
+    const displayOnlyWindows = ['flashcard', 'build', 'ward-map', 'rune-overlay'];
+    if (displayOnlyWindows.includes(windowLabel.value)) {
+      try {
+        await appWindow.setIgnoreCursorEvents(true);
+      } catch (_) {}
+    }
+
     // Escuta atualizações de estado globais emitidas pelo ciclo LCU do Rust (bridge.rs)
     unlistenUpdate = await listen("lcu-update", (event: any) => {
       const { status, summoner, state } = event.payload;
@@ -823,12 +833,19 @@ export function useSpellCoach() {
           }
         } else if (gameFlowState.value === "INGAME" && event.payload.gameData) {
           const gameData = event.payload.gameData;
-          const activeSumm = gameData.activePlayer?.summonerName;
-          const champ = gameData.allPlayers?.find((p: any) => p.summonerName === activeSumm)?.championName
-            || gameData.activePlayer?.championName;
-          if (champ) {
-            activeChampion.value = champ;
+          const activeSumm: string = gameData.activePlayer?.summonerName || '';
+          const activeBase = activeSumm.split('#')[0]?.toLowerCase() || '';
+          // activePlayer.championName ausente em patches recentes — busca em allPlayers
+          let champ: string = gameData.activePlayer?.championName || '';
+          if (!champ && activeSumm) {
+            const match = (gameData.allPlayers as any[] | undefined)?.find((p: any) => {
+              const pName: string = p.summonerName || '';
+              const pBase = pName.split('#')[0]?.toLowerCase() || '';
+              return pName === activeSumm || (activeBase && pBase === activeBase);
+            });
+            champ = match?.championName || '';
           }
+          if (champ) activeChampion.value = champ;
         } else {
           activeChampion.value = null;
         }
@@ -894,16 +911,13 @@ export function useSpellCoach() {
           objectiveEmoji:  d.objective_emoji  || "",
           secondsToSpawn:  d.seconds_to_spawn || 0,
         };
-        // Sincroniza com a janela ward-map se estiver aberta
-        try {
-          const win = await WebviewWindow.getByLabel("ward-map");
-          if (win) {
-            await emit("ward-map-data-updated", wardMapData.value);
-          }
-        } catch (_) {}
-        // Abre a janela brevemente (fecha após 12s via timeout)
+        // Abre a janela (cria se necessário, aguarda carregamento)
         await toggleWardMap(true);
-        setTimeout(() => toggleWardMap(false), 12000);
+        // Emite dados APÓS a janela estar aberta e carregada
+        try {
+          await emit("ward-map-data-updated", wardMapData.value);
+        } catch (_) {}
+        setTimeout(() => toggleWardMap(false), 15000);
         console.log('[WardMap] Recebido:', d.champion, d.role, d.wards?.length, 'pontos');
       });
     }

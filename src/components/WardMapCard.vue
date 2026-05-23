@@ -10,64 +10,48 @@ interface WardPoint {
 const props = defineProps<{
   champion: string;
   role: string;
-  phase: string;       // "early" | "mid" | "late"
-  teamSide: string;    // "blue" | "red"
+  phase: string;
+  teamSide: string;
   wards: WardPoint[];
   gameTime: number;
-  objective?: string;       // "Dragão", "Barão", "Arauto", "Aronguejo"
-  objectiveEmoji?: string;  // "🐉", "💜", "🔮", "🦀"
-  secondsToSpawn?: number;  // segundos restantes para o spawn
+  objective?: string;
+  objectiveEmoji?: string;
+  secondsToSpawn?: number;
 }>();
 
-// Posição SVG aproximada de cada objetivo no mapa (para pulse visual)
-const objectiveSvgPos = computed(() => {
+// Minimap do LoL: coordenadas de jogo 0–15000 → px 0–240
+// Y é invertido: jogo Y=0 é bottom, imagem Y=0 é top
+const MAP_PX = 240;
+const GAME_MAX = 15000;
+
+function toMap(gameCoord: number, axis: "x" | "y"): number {
+  const ratio = gameCoord / GAME_MAX;
+  return axis === "x" ? ratio * MAP_PX : (1 - ratio) * MAP_PX;
+}
+
+// Posição no mapa dos objetivos (coordenadas de jogo)
+const objectiveGamePos = computed(() => {
   switch (props.objective) {
-    case "Dragão":     return { x: 178, y: 200 };
-    case "Barão":      return { x: 60,  y: 44  };
-    case "Arauto":     return { x: 60,  y: 44  };
-    case "Aronguejo": return { x: 148, y: 148 };
-    default:           return null;
+    case "Dragão":    return { x: 9866, y: 4414 };
+    case "Barão":     return { x: 4951, y: 10440 };
+    case "Arauto":    return { x: 4951, y: 10440 };
+    case "Aronguejo": return { x: 10991, y: 5009 };
+    default: return null;
   }
 });
 
-// LoL map: coordinates 0–15000 → SVG 240×240
-const MAP_SIZE = 15000;
-const SVG_SIZE = 240;
-
-function toSvg(gameCoord: number, axis: "x" | "y"): number {
-  const ratio = gameCoord / MAP_SIZE;
-  // Y axis: game 0 = bottom, SVG 0 = top → flip
-  return axis === "x"
-    ? ratio * SVG_SIZE
-    : (1 - ratio) * SVG_SIZE;
-}
-
-// Cores por prioridade
-const priorityColor = (p: number): string => {
-  if (p <= 1) return "#f0e84a";  // dourado — alta prioridade
-  if (p <= 2) return "#4af0a0";  // verde
-  if (p <= 3) return "#4ab4f0";  // azul
-  return "#a0a0a0";              // cinza — baixa prioridade
+const priorityColor = (p: number) => {
+  if (p <= 1) return "#f0e84a";
+  if (p <= 2) return "#4af076";
+  if (p <= 3) return "#4ab4f0";
+  return "#c0c0c0";
 };
-
-const priorityLabel = (p: number): string => {
-  if (p <= 1) return "★";
-  if (p <= 2) return "▲";
-  return "●";
-};
-
-const phaseLabel = computed(() => {
-  if (props.phase === "early") return "Early (0–10min)";
-  if (props.phase === "mid")   return "Mid (10–20min)";
-  return "Late (20min+)";
-});
 
 const roleLabel = computed(() => {
-  const map: Record<string, string> = {
-    TOP: "Topo", JUNGLE: "Selva", MID: "Meio",
-    ADC: "Atirador", SUPPORT: "Suporte",
+  const m: Record<string, string> = {
+    TOP: "Topo", JUNGLE: "Selva", MID: "Meio", ADC: "Atirador", SUPPORT: "Suporte",
   };
-  return map[props.role] ?? props.role;
+  return m[props.role] ?? props.role;
 });
 
 const minuteStr = computed(() => {
@@ -75,262 +59,220 @@ const minuteStr = computed(() => {
   const s = Math.floor(props.gameTime % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
 });
+
+const topWards = computed(() => props.wards.slice(0, 6));
 </script>
 
 <template>
   <div class="ward-card">
-    <div class="ward-header" :class="{ 'ward-header--objective': objective }">
+
+    <!-- Cabeçalho -->
+    <div class="ward-header" :class="{ 'is-objective': !!objective }">
       <span class="ward-title">
         <template v-if="objective">
-          {{ objectiveEmoji }} {{ objective }} em ~{{ secondsToSpawn }}s — Visão
+          {{ objectiveEmoji }} <strong>{{ objective }}</strong> em {{ secondsToSpawn }}s — Visão
         </template>
         <template v-else>
-          👁️ Wards — {{ roleLabel }}
+          👁️ Wards · {{ roleLabel }}
         </template>
       </span>
-      <span class="ward-phase">{{ phaseLabel }} · {{ minuteStr }}</span>
+      <span class="ward-time">{{ minuteStr }}</span>
     </div>
 
-    <div class="map-wrapper">
-      <!-- Minimap SVG -->
+    <!-- Mapa -->
+    <div class="map-container">
+      <!-- Minimap real do LoL (Summoner's Rift) -->
+      <img
+        src="https://ddragon.leagueoflegends.com/cdn/img/map/map11.png"
+        class="minimap-img"
+        alt="minimap"
+        draggable="false"
+      />
+
+      <!-- Overlay SVG com wards e objetivos -->
       <svg
-        :width="SVG_SIZE"
-        :height="SVG_SIZE"
-        viewBox="0 0 240 240"
-        class="minimap"
+        class="ward-overlay"
+        :width="MAP_PX"
+        :height="MAP_PX"
+        :viewBox="`0 0 ${MAP_PX} ${MAP_PX}`"
       >
-        <!-- Fundo do mapa -->
-        <rect width="240" height="240" rx="6" fill="#0d1b0f" />
-
-        <!-- Terrain básico -->
-        <!-- Rio diagonal -->
-        <polygon
-          points="0,160 80,240 160,240 240,80 240,160 160,240 80,240 0,80"
-          fill="none"
-        />
-        <!-- Rio área -->
-        <path
-          d="M 0 170 L 70 240 L 170 240 L 240 70 L 240 30 L 200 30 L 50 0 L 0 80 Z"
-          fill="none"
-          stroke="#1a3a2a"
-          stroke-width="18"
-          opacity="0.6"
-        />
-        <!-- Borda do mapa -->
-        <rect width="240" height="240" rx="6" fill="none" stroke="#2a4a2a" stroke-width="2" />
-
-        <!-- Jungles (zonas de mato) -->
-        <rect x="2" y="2" width="100" height="100" rx="4" fill="#132a13" opacity="0.5" />
-        <rect x="138" y="138" width="100" height="100" rx="4" fill="#2a1313" opacity="0.5" />
-
-        <!-- Torres aproximadas (azul = baixo-esquerda, vermelho = cima-direita) -->
-        <!-- Base Blue -->
-        <rect x="4" y="198" width="28" height="28" rx="4"
-              :fill="teamSide === 'blue' ? '#1a4adf' : '#df1a1a'"
-              opacity="0.8" />
-        <text x="18" y="216" text-anchor="middle" font-size="9"
-              fill="white" font-weight="bold">
-          {{ teamSide === "blue" ? "B" : "R" }}
-        </text>
-
-        <!-- Base Red -->
-        <rect x="208" y="10" width="28" height="28" rx="4"
-              :fill="teamSide === 'blue' ? '#df1a1a' : '#1a4adf'"
-              opacity="0.8" />
-        <text x="222" y="28" text-anchor="middle" font-size="9"
-              fill="white" font-weight="bold">
-          {{ teamSide === "blue" ? "R" : "B" }}
-        </text>
-
-        <!-- Dragão (bottom-right área) -->
-        <text x="178" y="205" text-anchor="middle" font-size="14"
-              :opacity="objective === 'Dragão' ? 1.0 : 0.5">🐉</text>
-        <!-- Barão / Arauto (top-left área) -->
-        <text x="62" y="42" text-anchor="middle" font-size="14"
-              :opacity="(objective === 'Barão' || objective === 'Arauto') ? 1.0 : 0.5">
-          {{ (objective === 'Barão' || objective === 'Arauto') ? objectiveEmoji : '💜' }}
-        </text>
-
         <!-- Pulso do objetivo ativo -->
-        <g v-if="objectiveSvgPos">
+        <g v-if="objectiveGamePos">
           <circle
-            :cx="objectiveSvgPos.x" :cy="objectiveSvgPos.y"
-            r="18" fill="none" stroke="#f0e84a" stroke-width="2"
+            :cx="toMap(objectiveGamePos.x, 'x')"
+            :cy="toMap(objectiveGamePos.y, 'y')"
+            r="16" fill="none" stroke="#f0e84a" stroke-width="2.5"
             class="obj-pulse"
           />
           <circle
-            :cx="objectiveSvgPos.x" :cy="objectiveSvgPos.y"
-            r="24" fill="none" stroke="#f0e84a" stroke-width="1"
+            :cx="toMap(objectiveGamePos.x, 'x')"
+            :cy="toMap(objectiveGamePos.y, 'y')"
+            r="22" fill="none" stroke="#f0e84a" stroke-width="1"
             class="obj-pulse obj-pulse--slow"
-            opacity="0.5"
+            opacity="0.4"
           />
         </g>
 
-        <!-- Ward points -->
-        <g v-for="(w, i) in wards" :key="i">
-          <!-- Halo de destaque -->
+        <!-- Ward markers -->
+        <g v-for="(w, i) in topWards" :key="i">
+          <!-- Sombra / halo -->
           <circle
-            :cx="toSvg(w.x, 'x')"
-            :cy="toSvg(w.y, 'y')"
-            r="11"
+            :cx="toMap(w.x, 'x')"
+            :cy="toMap(w.y, 'y')"
+            r="10"
             :fill="priorityColor(w.priority)"
-            opacity="0.15"
+            opacity="0.20"
           />
           <!-- Círculo principal -->
           <circle
-            :cx="toSvg(w.x, 'x')"
-            :cy="toSvg(w.y, 'y')"
-            r="7"
+            :cx="toMap(w.x, 'x')"
+            :cy="toMap(w.y, 'y')"
+            r="6"
             :fill="priorityColor(w.priority)"
-            stroke="#000"
+            stroke="rgba(0,0,0,0.8)"
             stroke-width="1.5"
-            opacity="0.95"
           />
-          <!-- Número do ponto -->
+          <!-- Número -->
           <text
-            :x="toSvg(w.x, 'x')"
-            :y="toSvg(w.y, 'y') + 4"
+            :x="toMap(w.x, 'x')"
+            :y="toMap(w.y, 'y') + 4"
             text-anchor="middle"
-            font-size="7"
-            font-weight="bold"
+            font-size="6"
+            font-weight="900"
             fill="#000"
           >{{ i + 1 }}</text>
         </g>
       </svg>
+    </div>
 
-      <!-- Legenda lateral -->
-      <div class="ward-legend">
-        <div
-          v-for="(w, i) in wards"
-          :key="i"
-          class="legend-item"
-        >
-          <span class="legend-dot" :style="{ background: priorityColor(w.priority) }">
-            {{ i + 1 }}
-          </span>
-          <span class="legend-text">
-            {{ priorityLabel(w.priority) }}
-            <small>{{ Math.round(w.x / 100) * 100 }},{{ Math.round(w.y / 100) * 100 }}</small>
-          </span>
-        </div>
-        <div v-if="!wards.length" class="no-wards">
-          Sem dados de ward para {{ roleLabel }}
-        </div>
+    <!-- Legenda compacta -->
+    <div class="ward-legend">
+      <div v-if="!topWards.length" class="no-wards">
+        Sem dados de ward para {{ roleLabel }}
+      </div>
+      <div
+        v-for="(w, i) in topWards"
+        :key="i"
+        class="legend-row"
+      >
+        <span class="legend-num" :style="{ background: priorityColor(w.priority) }">
+          {{ i + 1 }}
+        </span>
+        <span class="legend-desc">
+          {{ i === 0 ? '★ Prioridade máxima' : i <= 2 ? '▲ Importante' : '● Situacional' }}
+        </span>
       </div>
     </div>
+
   </div>
 </template>
 
 <style scoped>
 .ward-card {
-  width: 340px;
-  background: rgba(1, 10, 19, 0.97);
-  border: 1px solid #2a4a2a;
+  width: 260px;
+  background: rgba(1, 8, 16, 0.97);
+  border: 1px solid rgba(200, 170, 110, 0.5);
   border-radius: 8px;
-  padding: 8px;
+  padding: 6px;
   font-family: monospace;
+  user-select: none;
 }
 
+/* Header */
 .ward-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 6px;
+  margin-bottom: 5px;
+  padding: 0 2px;
 }
-
 .ward-title {
-  font-size: 11px;
-  font-weight: 800;
+  font-size: 10px;
+  font-weight: 700;
   color: #4af0a0;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
 }
-
-.ward-phase {
+.ward-header.is-objective .ward-title { color: #f0e84a; }
+.ward-time {
   font-size: 9px;
   color: #a09b8c;
   font-weight: 600;
 }
 
-.map-wrapper {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
+/* Mapa */
+.map-container {
+  position: relative;
+  width: 248px;
+  height: 248px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.minimap-img {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ward-overlay {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 
-.minimap {
-  border-radius: 6px;
-  border: 1px solid #2a4a2a;
-  flex-shrink: 0;
-}
-
+/* Legenda */
 .ward-legend {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1;
-  max-height: 240px;
-  overflow-y: auto;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 3px 6px;
+  margin-top: 5px;
+  padding: 0 2px;
 }
-
-.legend-item {
+.legend-row {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
 }
-
-.legend-dot {
-  width: 18px;
-  height: 18px;
+.legend-num {
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 8px;
-  font-weight: 800;
+  font-size: 7px;
+  font-weight: 900;
   color: #000;
   flex-shrink: 0;
-  border: 1px solid rgba(0,0,0,0.5);
 }
-
-.legend-text {
+.legend-desc {
   font-size: 8px;
-  color: #c8aa6e;
-  line-height: 1.3;
+  color: #a09b8c;
 }
-
-.legend-text small {
-  display: block;
-  color: #5a5a5a;
-  font-size: 7px;
-}
-
 .no-wards {
   font-size: 9px;
-  color: #666;
-  padding: 4px;
+  color: #555;
+  padding: 2px;
+  width: 100%;
+  text-align: center;
 }
 
-/* Header contextual quando há objetivo */
-.ward-header--objective .ward-title {
-  color: #f0e84a;
-  font-size: 10px;
+/* Animações de objetivo */
+@keyframes pulse-ring {
+  0%   { r: 12; opacity: 0.9; }
+  70%  { r: 20; opacity: 0.1; }
+  100% { r: 12; opacity: 0.0; }
 }
-
-/* Pulso animado no objetivo */
-@keyframes obj-pulse {
-  0%   { r: 14; opacity: 0.9; }
-  70%  { r: 22; opacity: 0.2; }
-  100% { r: 14; opacity: 0;   }
+@keyframes pulse-ring-slow {
+  0%   { r: 18; opacity: 0.4; }
+  70%  { r: 28; opacity: 0.05; }
+  100% { r: 18; opacity: 0.0; }
 }
-@keyframes obj-pulse-slow {
-  0%   { r: 20; opacity: 0.5; }
-  70%  { r: 30; opacity: 0.1; }
-  100% { r: 20; opacity: 0;   }
-}
-.obj-pulse {
-  animation: obj-pulse 1.4s ease-out infinite;
-}
-.obj-pulse--slow {
-  animation: obj-pulse-slow 1.4s ease-out 0.4s infinite;
-}
+.obj-pulse        { animation: pulse-ring 1.4s ease-out infinite; }
+.obj-pulse--slow  { animation: pulse-ring-slow 1.4s ease-out 0.4s infinite; }
 </style>

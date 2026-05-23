@@ -9,14 +9,17 @@ pub(super) async fn handle_in_game_coaching(
     coach_state: &mut crate::live_coach::CoachState,
     last_tip_emit_time: &mut f64,
     cached_profile: Option<&crate::db::player_style_service::PlayerAggregateProfile>,
+    elo: &str,
 ) {
     if let Some(state) = handle.try_state::<db::DbState>() {
         let pool = &state.0;
 
-        // Get champion name from LCA: activePlayer doesn't include championName in the API,
-        // so we look it up from allPlayers by matching summonerName.
+        // Resolve o nome do campeão ativo a partir dos dados do LCA.
+        // activePlayer.championName pode estar vazio em patches recentes — usa allPlayers
+        // com matching triplo: summonerName exato, base do Riot ID (sem #tag) e teamParticipantId.
         let active_summ_for_champ = lca_data["activePlayer"]["summonerName"].as_str().unwrap_or("");
         let active_base_for_champ = active_summ_for_champ.split('#').next().unwrap_or(active_summ_for_champ).to_lowercase();
+        let active_team_id = lca_data["activePlayer"]["teamParticipantId"].as_i64().unwrap_or(-1);
         let lca_champ_name = lca_data["activePlayer"]["championName"]
             .as_str()
             .filter(|s| !s.is_empty())
@@ -26,7 +29,10 @@ pub(super) async fn handle_in_game_coaching(
                     .find(|p| {
                         let p_name = p["summonerName"].as_str().unwrap_or("");
                         let p_base = p_name.split('#').next().unwrap_or(p_name).to_lowercase();
-                        p_name == active_summ_for_champ || (!active_base_for_champ.is_empty() && p_base == active_base_for_champ)
+                        let p_team_id = p["teamParticipantId"].as_i64().unwrap_or(-2);
+                        p_name == active_summ_for_champ
+                            || (!active_base_for_champ.is_empty() && p_base == active_base_for_champ)
+                            || (active_team_id >= 0 && p_team_id == active_team_id)
                     })
                     .and_then(|p| p["championName"].as_str())
                     .map(|s| s.to_string())
@@ -50,19 +56,36 @@ pub(super) async fn handle_in_game_coaching(
         // Strip #TagLine for robust matching (Riot ID format varies between endpoints)
         let active_base = active_summ_name.split('#').next().unwrap_or(active_summ_name).to_lowercase();
 
+        // Nome do campeão ativo — fallback de identificação quando summonerName não casa
+        let active_champ_name = {
+            let from_active = lca_data["activePlayer"]["championName"].as_str().unwrap_or("").to_lowercase();
+            if !from_active.is_empty() { from_active }
+            else { lca_champ_name.to_lowercase() }
+        };
+
         if let Some(players) = lca_data["allPlayers"].as_array() {
             for p in players {
                 let p_name = p["summonerName"].as_str().unwrap_or("");
                 let p_base = p_name.split('#').next().unwrap_or(p_name).to_lowercase();
+                let p_champ = p["championName"].as_str().unwrap_or("").to_lowercase();
+
+                // Três critérios de match — o terceiro (por campeão) evita falha
+                // quando Riot ID / formato de nome varia entre endpoints da LCA.
                 let matches = p_name == active_summ_name
-                    || (!active_base.is_empty() && p_base == active_base);
+                    || (!active_base.is_empty() && p_base == active_base)
+                    || (!active_champ_name.is_empty() && p_champ == active_champ_name);
+
                 if matches {
-                    raw_pos = p["position"].as_str().unwrap_or("MIDDLE").to_uppercase();
+                    raw_pos = p["position"].as_str()
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or("MIDDLE")
+                        .to_uppercase();
                     team_side = p["team"].as_str().unwrap_or("ORDER").to_uppercase();
                     has_smite = p["summonerSpells"]["summonerSpellOne"]["displayName"]
                         .as_str().map(|s| s.to_lowercase().contains("smite")).unwrap_or(false)
                         || p["summonerSpells"]["summonerSpellTwo"]["displayName"]
                         .as_str().map(|s| s.to_lowercase().contains("smite")).unwrap_or(false);
+                    println!("[Bridge] Player encontrado: {} | pos={} | smite={}", p_champ, raw_pos, has_smite);
                     break;
                 }
             }
@@ -78,8 +101,18 @@ pub(super) async fn handle_in_game_coaching(
 
         // ── Carga única de dados do banco por partida ──────────────────────────
         if !coach_state.db_loaded && !champion_for_runes.is_empty() {
+            // Resolve o ID DDragon uma vez (ex: "Miss Fortune" → "MissFortune")
+            // para evitar mismatch entre o nome da LCA e as chaves do banco de dados.
+            coach_state.db_champion_key = db::coach_service::resolve_champion_db_id(
+                pool, &champion_for_runes
+            ).await;
+            if coach_state.db_champion_key.is_empty() {
+                coach_state.db_champion_key = champion_for_runes.clone();
+            }
+            println!("[DB] Champion resolvido: '{}' → '{}'", champion_for_runes, coach_state.db_champion_key);
+
             if let Some(meta) = db::coach_service::get_champion_meta_from_db(
-                pool, &champion_for_runes, role_for_runes
+                pool, &coach_state.db_champion_key, role_for_runes
             ).await {
                 coach_state.db_skill_order    = meta.skill_order;
                 coach_state.db_jungle_path    = meta.jungle_path;
@@ -101,15 +134,22 @@ pub(super) async fn handle_in_game_coaching(
                 let opp_champ = players.iter()
                     .find(|p| {
                         p["team"].as_str().unwrap_or("ORDER") != my_team
-                            && p["position"].as_str().unwrap_or("") == raw_pos.as_str()
+                            && !raw_pos.is_empty()
+                            && p["position"].as_str()
+                                .filter(|s| !s.is_empty())
+                                .map(|s| s.to_uppercase() == raw_pos)
+                                .unwrap_or(false)
                     })
                     .and_then(|p| p["championName"].as_str());
                 if let Some(opp) = opp_champ {
+                    // Resolve o nome DDragon do oponente (LCA retorna "Lee Sin", DB tem "LeeSin")
+                    let opp_key = db::coach_service::resolve_champion_db_id(pool, opp).await;
+                    let opp_resolved = if opp_key.is_empty() { opp.to_string() } else { opp_key };
                     coach_state.db_matchup_difficulty = db::coach_service::get_matchup_difficulty(
-                        pool, &champion_for_runes, opp
+                        pool, &coach_state.db_champion_key, &opp_resolved
                     ).await;
                     if let Some(diff) = coach_state.db_matchup_difficulty {
-                        println!("[DB] Matchup vs {}: dificuldade {}/10", opp, diff);
+                        println!("[DB] Matchup vs {}: dificuldade {}/10", opp_resolved, diff);
                     }
                 }
             }
@@ -176,6 +216,34 @@ pub(super) async fn handle_in_game_coaching(
             // Guard por ciclo: garante no máximo 1 emit de update-flashcard-content por tick de 2s.
             // Sem isso, múltiplos blocos (level-up + dynamic, clear + sighting) disparam juntos.
             let mut emitted_this_cycle = false;
+
+            // ── Skill priority — dispara UMA vez após DB carregar (5-15s de jogo) ──
+            if !emitted_this_cycle && game_time >= 5.0 && game_time < 20.0
+                && coach_state.db_loaded
+                && !coach_state.db_skill_order.is_empty()
+                && !coach_state.shown_categories.contains_key("SKILL_PRIORITY_SHOWN")
+            {
+                coach_state.shown_categories.insert("SKILL_PRIORITY_SHOWN".to_string(), 1);
+                let order = coach_state.db_skill_order.iter().take(5).cloned().collect::<Vec<_>>();
+                let order_str = order.join(" → ");
+                // Identifica a habilidade a maximizar primeiro (mais frequente nos 9 primeiros níveis)
+                let first_9 = &coach_state.db_skill_order[..coach_state.db_skill_order.len().min(9)];
+                let q_count = first_9.iter().filter(|s| s.to_uppercase() == "Q").count();
+                let w_count = first_9.iter().filter(|s| s.to_uppercase() == "W").count();
+                let e_count = first_9.iter().filter(|s| s.to_uppercase() == "E").count();
+                let max_skill = if q_count >= w_count && q_count >= e_count { "Q" }
+                    else if w_count >= e_count { "W" } else { "E" };
+                let _ = handle.emit("update-flashcard-content", serde_json::json!({
+                    "title": format!("⬆️ Prioridade: Max {}", max_skill),
+                    "frontText": format!("1→5: {}", order_str),
+                    "backText": format!("Maximize {} primeiro. Ordem dos primeiros níveis: {}.", max_skill, order_str),
+                    "rarity": "rare",
+                    "dismiss": { "type": "fallback", "max_ms": 20000 }
+                }));
+                *last_tip_emit_time = game_time;
+                emitted_this_cycle = true;
+                println!("[DB] Skill priority emitida: max {} | {}", max_skill, order_str);
+            }
 
             // ── Dica de itens iniciais (meta) — dispara uma vez nos primeiros 5s ──
             // Guard: só dispara se não houve outra dica recentemente (evita burst na entrada)
@@ -493,8 +561,15 @@ pub(super) async fn handle_in_game_coaching(
                     x_min: 7000, x_max: 14000, y_min: 2000, y_max: 8000 },
             ];
 
+            // Usa o ID DDragon resolvido para queries (fallback para nome LCA se não resolvido)
+            let db_key = if !coach_state.db_champion_key.is_empty() {
+                &coach_state.db_champion_key
+            } else {
+                &champion_for_runes
+            };
+
             for obj in &objectives {
-                if obj.spawn == f64::MAX || champion_for_runes.is_empty() { continue; }
+                if obj.spawn == f64::MAX || db_key.is_empty() { continue; }
                 let secs_left = obj.spawn - game_time;
                 if secs_left > 40.0 || secs_left < 0.0 { continue; }
 
@@ -503,12 +578,12 @@ pub(super) async fn handle_in_game_coaching(
                 coach_state.objective_ward_alerts.insert(alert_key);
 
                 let wards = db::coach_service::get_ward_suggestions_for_objective(
-                    pool, &champion_for_runes, role_for_runes,
+                    pool, db_key, role_for_runes,
                     obj.spawn, obj.x_min, obj.x_max, obj.y_min, obj.y_max,
                 ).await;
 
                 if !wards.is_empty() {
-                    coach_state.last_ward_map_time = game_time; // conta como ward map recente
+                    coach_state.last_ward_map_time = game_time;
                     let _ = handle.emit("update-ward-map", serde_json::json!({
                         "champion": champion_for_runes,
                         "role": role_for_runes,
@@ -529,11 +604,11 @@ pub(super) async fn handle_in_game_coaching(
             let ward_cooldown = 180.0;
             let ward_due = game_time >= 60.0
                 && (game_time - coach_state.last_ward_map_time) >= ward_cooldown
-                && !champion_for_runes.is_empty();
+                && !db_key.is_empty();
 
             if ward_due {
                 let wards = db::coach_service::get_ward_suggestions(
-                    pool, &champion_for_runes, role_for_runes, game_time
+                    pool, db_key, role_for_runes, game_time
                 ).await;
 
                 if !wards.is_empty() {
