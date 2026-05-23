@@ -117,19 +117,11 @@ pub async fn get_groq_tip_internal(pool: &Pool<Sqlite>, prompt: String) -> Resul
     ).fetch_optional(pool).await.unwrap_or(None);
     let api_key = match api_key_raw {
         Some(k) if !k.trim().is_empty() => k,
-        _ => {
-            // Prioridade: env var runtime → chave embutida no binário (option_env! em build time)
-            if let Ok(k) = std::env::var("GROQ_API_KEY") {
-                if !k.trim().is_empty() { k }
-                else { option_env!("GROQ_API_KEY").unwrap_or("").to_string() }
-            } else {
-                option_env!("GROQ_API_KEY").unwrap_or("").to_string()
-            }
-        }
+        _ => match std::env::var("GROQ_API_KEY") {
+            Ok(k) if !k.trim().is_empty() => k,
+            _ => return Err("Chave Groq não configurada".to_string()),
+        },
     };
-    if api_key.trim().is_empty() {
-        return Err("Chave Groq não configurada".to_string());
-    }
 
     let model_raw: Option<String> = sqlx::query_scalar::<_, String>(
         "SELECT value FROM sync_metadata WHERE key = 'groq_model'"
