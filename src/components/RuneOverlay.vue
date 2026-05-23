@@ -61,10 +61,14 @@ onMounted(async () => {
 
   const { emit } = await import('@tauri-apps/api/event');
   emit('request-rune-overlay-content');
+  window.addEventListener('keydown', onKey);
 });
+
+const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeWindow(); };
 
 onUnmounted(() => {
   if (unlistenUpdate) unlistenUpdate();
+  window.removeEventListener('keydown', onKey);
 });
 </script>
 

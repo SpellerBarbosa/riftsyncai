@@ -171,6 +171,12 @@ export function useSpellCoach() {
   const postGameReport = ref<any>(null);
   const postGameLoading = ref(false);
 
+  // Estado do pré-jogo (loading screen)
+  const preGameReport = ref<any>(null);
+
+  // Chave numérica Riot do adversário real de rota (preenchido no Champ Select)
+  const laneOpponentKey = ref<number | null>(null);
+
   // Estado do ward map
   const wardMapData = ref({
     champion: "",
@@ -387,6 +393,28 @@ export function useSpellCoach() {
     }
   };
 
+  const openPreGameWindow = async (report: any) => {
+    localStorage.setItem('spellcoach_pregame', JSON.stringify(report));
+    try {
+      const existing = await WebviewWindow.getByLabel("pre-game");
+      if (existing) await existing.close();
+      await new Promise(r => setTimeout(r, 100));
+      new WebviewWindow("pre-game", {
+        url: "index.html",
+        title: "Spell Coach — Pré-Jogo",
+        width: 420,
+        height: 340,
+        transparent: true,
+        decorations: false,
+        alwaysOnTop: true,
+        center: true,
+        focus: true,
+      });
+    } catch (e) {
+      console.error('[PreGame] Erro ao abrir janela:', e);
+    }
+  };
+
   /// Controla a exibição do cartão de dicas táticas (Flashcard) que desliza para a tela.
   /// PERFORMANCE: NÃO chamamos setFocus() aqui — roubar o foco do jogo causa lag/freeze
   /// no League of Legends em modo borderless. O flashcard é sempre passivo (passthrough de foco).
@@ -484,7 +512,10 @@ export function useSpellCoach() {
     const stateBeforeFetch = gameFlowState.value;
 
     try {
-      const tips: any = await invoke("get_tactical_tips_command", { champId: champion });
+      const tips: any = await invoke("get_tactical_tips_command", {
+        champId: champion,
+        opponentKey: laneOpponentKey.value ?? null,
+      });
 
       // Atualiza o estado de exaustão do Groq com base na resposta do backend.
       // groq_exhausted = true  → Groq falhou → libera procedural automaticamente
@@ -560,6 +591,20 @@ export function useSpellCoach() {
       }
       await toggleRuneOverlay(false);
       await toggleFlashcard(false);
+    }
+  });
+
+  // Quando o oponente de rota travar depois que as dicas já foram buscadas sem ele,
+  // re-busca com o oponente real para corrigir a dica (evita alucinações do Groq).
+  watch(laneOpponentKey, async (newKey, oldKey) => {
+    if (windowLabel.value !== 'main') return;
+    if (newKey !== null && oldKey === null && activeChampion.value) {
+      const isChampSelect = gameFlowState.value === 'CHAMP SELECT' || gameFlowState.value === 'CHAMPSELECT';
+      if (isChampSelect) {
+        console.log('[App.vue] Oponente de rota travou:', newKey, '— re-buscando dicas táticas com oponente real.');
+        lastAutoTacticalTipChamp.value = null;
+        await fetchAndShowTacticalTips();
+      }
     }
   });
 
@@ -865,7 +910,8 @@ export function useSpellCoach() {
 
   onMounted(async () => {
     // Janelas de display-only: passa cliques ao jogo permanentemente
-    const displayOnlyWindows = ['flashcard', 'build', 'ward-map', 'rune-overlay'];
+    // rune-overlay é exibida no champ select (não in-game), então aceita cliques normalmente
+    const displayOnlyWindows = ['flashcard', 'build', 'ward-map'];
     if (displayOnlyWindows.includes(windowLabel.value)) {
       try { await appWindow.setIgnoreCursorEvents(true); } catch (_) {}
     }
@@ -884,10 +930,20 @@ export function useSpellCoach() {
         if (typeof state === 'string') gameFlowState.value = state.toUpperCase();
         else if (state?.ChampSelect) {
           gameFlowState.value = "CHAMP SELECT";
-          if (state.ChampSelect.role) {
-            playerRole.value = getNormalizedRole(state.ChampSelect.role);
+          const rawRole = state.ChampSelect.role || '';
+          if (rawRole) {
+            playerRole.value = getNormalizedRole(rawRole);
           }
-        } else gameFlowState.value = "GAME";
+          // Extrai adversário real de rota para o Groq não usar o pior matchup estatístico
+          const theirTeam: any[] = state.ChampSelect.their_team || [];
+          const laneOpp = theirTeam.find((m: any) =>
+            m.assigned_position?.toLowerCase() === rawRole.toLowerCase() && m.champion_id > 0
+          );
+          laneOpponentKey.value = laneOpp ? laneOpp.champion_id : null;
+        } else {
+          gameFlowState.value = "GAME";
+          laneOpponentKey.value = null;
+        }
 
         // Coleta dinamicamente o campeão em Champ Select ou Game ativo
         const isChampSelect = gameFlowState.value === 'CHAMP SELECT' || gameFlowState.value === 'CHAMPSELECT';
@@ -996,6 +1052,16 @@ export function useSpellCoach() {
         if (event.payload) {
           wardMapData.value = event.payload;
         }
+      });
+    }
+
+    // Análise pré-jogo — abre durante o loading screen com matchups 1v1
+    if (windowLabel.value === 'main') {
+      await listen("pre-game-analysis", async (event: any) => {
+        if (!event.payload) return;
+        preGameReport.value = event.payload;
+        await openPreGameWindow(event.payload);
+        console.log('[PreGame] Análise recebida:', event.payload?.player_champion, event.payload?.matchups?.length, 'matchups');
       });
     }
 
@@ -1162,6 +1228,7 @@ export function useSpellCoach() {
     wardMapData,
     postGameReport,
     postGameLoading,
+    preGameReport,
     openSettings,
     openDataViewer,
     toggleRuneOverlay,

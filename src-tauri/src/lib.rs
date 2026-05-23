@@ -130,6 +130,14 @@ pub fn run() {
                 status: kokoro_status,
             });
 
+            // Garante que o ONNX Runtime use todos os cores disponíveis via OpenMP.
+            // Deve ser definido ANTES de qualquer Session ser criada.
+            let cpu_count = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+            unsafe {
+                std::env::set_var("OMP_NUM_THREADS", cpu_count.to_string());
+            }
+            println!("[Kokoro] OMP_NUM_THREADS={} (cores disponíveis)", cpu_count);
+
             let handle_for_kokoro = handle.clone();
             tauri::async_runtime::spawn(async move {
                 println!("[Kokoro] Inicializando o motor de voz local Kokoro (isto pode baixar o modelo de 300MB+ se for a primeira vez)...");
@@ -137,12 +145,19 @@ pub fn run() {
                     Ok(mut engine) => {
                         println!("[Kokoro] Motor de voz Kokoro carregado com sucesso! Realizando aquecimento (warm-up)...");
                         let start_warmup = std::time::Instant::now();
-                        // Warm-up inference of a single character "a" to initialize ONNX session graphs & allocators
-                        if let Err(e) = engine.synthesize_with_options("a", Some("pf_dora"), 1.0, 0.0, Some("pt-br")) {
-                            eprintln!("[Kokoro] Erro no warm-up do motor ONNX: {}", e);
-                        } else {
-                            println!("[Kokoro] Aquecimento concluído com sucesso em {:?}!", start_warmup.elapsed());
+                        // Warm-up com frase representativa de tips reais: inclui números, % e travessão
+                        // para forçar o eSpeak e o ONNX a JIT-compilar os paths usados no coaching.
+                        // "a" sozinho não aquece eSpeak para tokens numéricos/especiais em pt-br.
+                        let warmup_phrases = [
+                            "Bana Amumu — dominante neste ELO.",
+                            "Bana Ekko ou Amumu, 66 por cento de vitória.",
+                        ];
+                        for phrase in &warmup_phrases {
+                            if let Err(e) = engine.synthesize_with_options(phrase, Some("pf_dora"), 1.0, 0.0, Some("pt-br")) {
+                                eprintln!("[Kokoro] Erro no warm-up '{}': {}", phrase, e);
+                            }
                         }
+                        println!("[Kokoro] Aquecimento concluído em {:?}!", start_warmup.elapsed());
 
                         if let Some(state) = handle_for_kokoro.try_state::<voice::KokoroState>() {
                             let mut lock = state.engine.lock().await;

@@ -32,13 +32,14 @@ fn get_opponent_skill_profile(opp_id: &str) -> &'static str {
 }
 
 /// Comando Tauri invocado pelo frontend para atualizar os cartões de dicas na tela.
-/// 
+///
 /// **Para o estudante (Fluxo do Programa):**
 /// 1. Resolve o ID do campeão do jogador.
-/// 2. Busca a pior matchup estatística dele (o maior counter registrado na base de dados).
+/// 2. Se `opponent_key` for fornecido (chave numérica Riot do adversário real de rota), usa esse oponente.
+///    Caso contrário, busca a pior matchup estatística dele (o maior counter registrado na base de dados).
 /// 3. Consolida todas as habilidades e informações da nossa base de dados SQL local.
 /// 4. Se a IA na Nuvem estiver configurada, tenta gerar um prompt customizado e consultar o OpenRouter.
-/// 5. Se o OpenRouter falhar ou estiver offline, roda a inteligência local assíncrona baseada na 
+/// 5. Se o OpenRouter falhar ou estiver offline, roda a inteligência local assíncrona baseada na
 ///    telemetria ao vivo da partida (Riot LCA).
 /// 6. Se o jogo não estiver aberto, cai no último fallback de dados estatísticos do banco de dados local.
 /// Isso é o que chamamos de **Arquitetura Resiliente de Três Camadas (Cloud AI -> Telemetria LCA -> Banco de Dados Local)**.
@@ -46,6 +47,7 @@ fn get_opponent_skill_profile(opp_id: &str) -> &'static str {
 pub async fn get_tactical_tips_command(
     state: State<'_, crate::db::DbState>,
     champ_id: String,
+    opponent_key: Option<i64>,
 ) -> Result<TacticalTipsResponse, String> {
     let pool = &state.0;
 
@@ -57,14 +59,46 @@ pub async fn get_tactical_tips_command(
         .await
         .unwrap_or_else(|_| champ_id.clone());
 
-    // 2. Busca a pior matchup dele no banco
-    let worst_matchup: Option<(String, f64)> = sqlx::query_as(
-        "SELECT opponent_id, win_rate FROM matchups WHERE champion_id = ? AND win_rate IS NOT NULL ORDER BY win_rate ASC LIMIT 1"
-    )
-    .bind(&resolved_id)
-    .fetch_optional(pool)
-    .await
-    .unwrap_or(None);
+    // 2. Tenta usar o oponente real de rota (passado pelo frontend via chave numérica Riot).
+    //    Se não for fornecido ou não estiver no banco, cai para a pior matchup estatística.
+    let actual_opponent_id: Option<String> = if let Some(key) = opponent_key {
+        super::stats::get_champion_id_by_key(pool, key as i32).await.unwrap_or(None)
+    } else {
+        None
+    };
+
+    // Busca a win_rate do oponente real (se disponível) ou a pior matchup como fallback
+    let worst_matchup: Option<(String, f64)> = if let Some(ref opp_id) = actual_opponent_id {
+        // Primeiro tenta a matchup direta
+        let direct: Option<f64> = sqlx::query_scalar(
+            "SELECT win_rate FROM matchups WHERE champion_id = ? AND opponent_id = ? AND win_rate IS NOT NULL LIMIT 1"
+        )
+        .bind(&resolved_id)
+        .bind(opp_id)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None);
+
+        if let Some(wr) = direct {
+            println!("[Coach:Tactical] Usando oponente real da rota: {} (win_rate {:.1}%)", opp_id, wr * 100.0);
+            Some((opp_id.clone(), wr))
+        } else {
+            // Sem dados de matchup mas temos o oponente real: usa com win_rate neutro.
+            // NUNCA cai para o pior matchup estatístico quando temos o oponente real —
+            // isso causava alucinações (ex: falar sobre Malzahar quando o inimigo é Zed).
+            println!("[Coach:Tactical] Oponente real {} sem dados de matchup — usando win_rate neutro 0.5.", opp_id);
+            Some((opp_id.clone(), 0.5))
+        }
+    } else {
+        // Sem oponente real: usa pior matchup estatística
+        sqlx::query_as(
+            "SELECT opponent_id, win_rate FROM matchups WHERE champion_id = ? AND win_rate IS NOT NULL ORDER BY win_rate ASC LIMIT 1"
+        )
+        .bind(&resolved_id)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None)
+    };
 
     // 3. Obtém metadados do campeão
     let champ_name: String = sqlx::query_scalar("SELECT name FROM champions WHERE id = ?")
@@ -221,18 +255,32 @@ pub async fn get_tactical_tips_command(
         }
     }
 
-    let groq_prompt = if let Some((opp, _)) = worst_matchup.as_ref() {
-        format!(
-            "Campeão: {champ} ({tags}). Mecânicas: {own_ctx}\n\
-             Counter: {opp} ({opp_wr}% win rate). Mecânicas do {opp}: {opp_ctx}\n\
-             Item core: {item} ({item_purpose})\n\n\
-             Preencha o JSON abaixo em PT-BR, máx 10 palavras por campo, ação concreta, sem nome de jogador:\n\
-             {{\"matchup_front\":\"comportamento vs {opp} na rota\",\"matchup_back\":\"ameaça principal do {opp} e counter\",\"item_front\":\"{item} vs {opp}: vantagem principal\",\"item_back\":\"ative {item} após [gatilho específico do {opp}]\"}}",
-            champ = champ_name, tags = clean_tags, item = first_item,
-            item_purpose = item_purpose,
-            opp = opp, opp_wr = opp_percent_str,
-            own_ctx = own_ctx, opp_ctx = opp_ctx,
-        )
+    // Só usa o oponente no prompt do Groq quando temos um adversário REAL de rota (opponent_key fornecido).
+    // Quando opponent_key é None (bots, personalizada, inimigo ainda não lockeu), usa o prompt genérico
+    // para evitar que o Groq alucine um campeão que não está no jogo.
+    let groq_prompt = if opponent_key.is_some() {
+        if let Some((opp, _)) = worst_matchup.as_ref() {
+            format!(
+                "Campeão: {champ} ({tags}). Mecânicas: {own_ctx}\n\
+                 Adversário real de rota: {opp} ({opp_wr}% win rate do inimigo). Mecânicas do {opp}: {opp_ctx}\n\
+                 Item core: {item} ({item_purpose})\n\n\
+                 Preencha o JSON abaixo em PT-BR, máx 10 palavras por campo, ação concreta, sem nome de jogador:\n\
+                 {{\"matchup_front\":\"comportamento vs {opp} na rota\",\"matchup_back\":\"ameaça principal do {opp} e counter\",\"item_front\":\"{item} vs {opp}: vantagem principal\",\"item_back\":\"ative {item} após [gatilho específico do {opp}]\"}}",
+                champ = champ_name, tags = clean_tags, item = first_item,
+                item_purpose = item_purpose,
+                opp = opp, opp_wr = opp_percent_str,
+                own_ctx = own_ctx, opp_ctx = opp_ctx,
+            )
+        } else {
+            format!(
+                "Campeão: {champ} ({tags}). Mecânicas: {own_ctx}\n\
+                 Item core: {item} ({item_purpose})\n\n\
+                 Preencha o JSON abaixo em PT-BR, máx 10 palavras por campo, ação concreta, sem nome de jogador:\n\
+                 {{\"matchup_front\":\"{champ}: posicionamento chave na rota\",\"matchup_back\":\"quando {champ} inicia vs quando recua\",\"item_front\":\"{item}: por que é o core ideal\",\"item_back\":\"ative {item} após [gatilho de combate]\"}}",
+                champ = champ_name, tags = clean_tags, item = first_item,
+                item_purpose = item_purpose, own_ctx = own_ctx,
+            )
+        }
     } else {
         format!(
             "Campeão: {champ} ({tags}). Mecânicas: {own_ctx}\n\

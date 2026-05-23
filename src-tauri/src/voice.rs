@@ -32,66 +32,85 @@ impl VoicePlayer {
 
         std::thread::spawn(move || {
             println!("[VoicePlayer] Inicializando dispositivo de áudio nativo na thread dedicada...");
-            if let Ok((_stream, handle)) = rodio::OutputStream::try_default() {
-                println!("[VoicePlayer] Dispositivo de áudio padrão aberto com sucesso!");
-                while let Ok(req) = rx.recv() {
-                    // Para qualquer áudio tocando antes de iniciar o novo
-                    {
-                        let mut active_sink = sink_clone.lock().unwrap();
-                        if let Some(s) = active_sink.take() {
-                            s.stop();
-                        }
-                    }
 
-                    if let Ok(new_sink) = rodio::Sink::try_new(&handle) {
+            // Tenta abrir o dispositivo de áudio; reinicia se o dispositivo mudar ou falhar.
+            let mut stream_handle: Option<(rodio::OutputStream, rodio::OutputStreamHandle)> = rodio::OutputStream::try_default().ok();
+            if stream_handle.is_some() {
+                println!("[VoicePlayer] Dispositivo de áudio padrão aberto com sucesso!");
+            } else {
+                eprintln!("[VoicePlayer] AVISO: falha na abertura inicial do dispositivo de áudio.");
+            }
+
+            while let Ok(req) = rx.recv() {
+                // Para qualquer áudio tocando antes de iniciar o novo
+                {
+                    let mut active_sink = sink_clone.lock().unwrap();
+                    if let Some(s) = active_sink.take() {
+                        s.stop();
+                    }
+                }
+
+                // Se não há handle válida, tenta reinicializar o dispositivo de áudio
+                if stream_handle.is_none() {
+                    println!("[VoicePlayer] Tentando reinicializar dispositivo de áudio...");
+                    stream_handle = rodio::OutputStream::try_default().ok();
+                    if stream_handle.is_some() {
+                        println!("[VoicePlayer] Dispositivo de áudio reinicializado com sucesso.");
+                    } else {
+                        eprintln!("[VoicePlayer] Falha ao reinicializar dispositivo de áudio — pulando reprodução.");
+                        let _ = req.done_tx.send(());
+                        continue;
+                    }
+                }
+
+                let handle = &stream_handle.as_ref().unwrap().1;
+                match rodio::Sink::try_new(handle) {
+                    Err(e) => {
+                        eprintln!("[VoicePlayer] Sink::try_new falhou ({}). Descartando stream e tentando na próxima.", e);
+                        stream_handle = None; // força reinit no próximo request
+                        let _ = req.done_tx.send(());
+                    }
+                    Ok(new_sink) => {
                         new_sink.set_volume(req.volume);
                         new_sink.set_speed(req.speed);
 
-                        match req.source {
+                        let appended = match req.source {
                             PlaySource::Samples(samples) => {
                                 let source = rodio::buffer::SamplesBuffer::new(1, 24000, samples);
                                 new_sink.append(source);
+                                true
                             }
                             PlaySource::File(path_str) => {
-                                if let Ok(file) = std::fs::File::open(&path_str) {
-                                    if let Ok(source) = rodio::Decoder::new(std::io::BufReader::new(file)) {
-                                        new_sink.append(source);
-                                    } else {
-                                        eprintln!("[VoicePlayer] Erro ao decodificar WAV: {}", path_str);
+                                match std::fs::File::open(&path_str) {
+                                    Ok(file) => match rodio::Decoder::new(std::io::BufReader::new(file)) {
+                                        Ok(source) => { new_sink.append(source); true }
+                                        Err(e) => { eprintln!("[VoicePlayer] Erro ao decodificar WAV '{}': {}", path_str, e); false }
                                     }
-                                } else {
-                                    eprintln!("[VoicePlayer] Erro ao abrir WAV no disco: {}", path_str);
+                                    Err(e) => { eprintln!("[VoicePlayer] Erro ao abrir WAV '{}': {}", path_str, e); false }
                                 }
                             }
+                        };
+
+                        if appended {
+                            // Armazena sink ativo para que stop() possa cancelar
+                            { *sink_clone.lock().unwrap() = Some(new_sink); }
+
+                            // Aguarda término natural ou cancelamento por stop()
+                            loop {
+                                std::thread::sleep(std::time::Duration::from_millis(50));
+                                let is_done = {
+                                    let guard = sink_clone.lock().unwrap();
+                                    guard.as_ref().map(|s| s.empty()).unwrap_or(true)
+                                };
+                                if is_done { break; }
+                            }
+
+                            sink_clone.lock().unwrap().take();
                         }
 
-                        // Armazena sink ativo para que stop() possa cancelar
-                        {
-                            let mut active_sink = sink_clone.lock().unwrap();
-                            *active_sink = Some(new_sink);
-                        }
-
-                        // Aguarda término natural (sink.empty()) ou cancelamento (sink.take() pelo stop()).
-                        // Polling de 50ms — baixíssimo custo de CPU, mas detecta o fim rapidamente.
-                        loop {
-                            std::thread::sleep(std::time::Duration::from_millis(50));
-                            let is_done = {
-                                let guard = sink_clone.lock().unwrap();
-                                // None → stop() limpou o sink; empty() → playback terminou naturalmente
-                                guard.as_ref().map(|s| s.empty()).unwrap_or(true)
-                            };
-                            if is_done { break; }
-                        }
-
-                        // Remove o sink da guard (pode já ser None se stop() foi chamado)
-                        { sink_clone.lock().unwrap().take(); }
+                        let _ = req.done_tx.send(());
                     }
-
-                    // Sinaliza para play_voice que a reprodução terminou
-                    let _ = req.done_tx.send(());
                 }
-            } else {
-                eprintln!("[VoicePlayer] ERRO crítico ao inicializar dispositivo de som nativo.");
             }
         });
 
@@ -126,6 +145,19 @@ pub(crate) async fn get_kokoro_status(app: tauri::AppHandle) -> Result<String, S
         Ok(status)
     } else {
         Ok("loading".to_string())
+    }
+}
+
+/// Normaliza o pico das amostras para no máximo 0.90 de amplitude.
+/// Evita hard-clipping (som estourado) sem alterar o timbre da voz:
+/// se o pico já estiver abaixo de 0.90, as amostras não são modificadas.
+fn normalize_peak(samples: &[f32]) -> Vec<f32> {
+    let peak = samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+    if peak > 0.90 {
+        let scale = 0.88 / peak;
+        samples.iter().map(|s| s * scale).collect()
+    } else {
+        samples.to_vec()
     }
 }
 
@@ -215,6 +247,18 @@ pub(crate) async fn play_voice(
     let state = app.try_state::<KokoroState>()
         .ok_or_else(|| "O motor de voz Kokoro não foi registrado.".to_string())?;
 
+    // Limita o texto a 100 chars (word-boundary) — inputs maiores escalam linearmente
+    // no modelo ONNX de 82M e causam latências de 5s+ sem ganho perceptível para coaching.
+    let text = if text.chars().count() > 100 {
+        let truncated: String = text.chars().take(100).collect();
+        match truncated.rfind(' ') {
+            Some(pos) => truncated[..pos].to_string(),
+            None => truncated,
+        }
+    } else {
+        text
+    };
+
     println!("[play_voice] Chamado com text: '{}', voice: '{}', volume: {}, speed: {}", text, voice, volume, speed);
 
     let kokoro_voice = if voice.to_lowercase() == "francisca" {
@@ -272,7 +316,7 @@ pub(crate) async fn play_voice(
     })?;
 
     let start_time = std::time::Instant::now();
-    let samples = engine.synthesize_with_options(
+    let raw_samples = engine.synthesize_with_options(
         &text,
         Some(kokoro_voice),
         speed,
@@ -283,6 +327,13 @@ pub(crate) async fn play_voice(
     // Libera o lock do Kokoro assim que a síntese termina. As etapas seguintes
     // (escrita em disco, SQLite e playback) não precisam bloquear novas sínteses.
     drop(engine_lock);
+
+    // Normalização de pico: evita hard-clipping (som estourado) quando o Kokoro
+    // gera amostras com amplitude > 1.0. Escala para máx 0.88 sem alterar o timbre.
+    let samples = normalize_peak(&raw_samples);
+    let peak_before = raw_samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+    let peak_after = samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+    println!("[Kokoro] Pico antes: {:.3} → depois: {:.3}", peak_before, peak_after);
 
     let duration = start_time.elapsed();
     println!("[Kokoro] Síntese concluída em: {:?}", duration);

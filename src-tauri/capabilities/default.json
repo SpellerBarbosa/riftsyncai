@@ -11,7 +11,9 @@
     "flashcard",
     "sync-progress",
     "rune-overlay",
-    "post-game"
+    "post-game",
+    "pre-game",
+    "ward-map"
   ],
   "permissions": [
     "core:default",

@@ -24,6 +24,7 @@ import SyncProgress from "./components/SyncProgress.vue";
 import RuneOverlay from "./components/RuneOverlay.vue";
 import WardMapCard from "./components/WardMapCard.vue";
 import PostGameOverlay from "./components/PostGameOverlay.vue";
+import PreGameOverlay from "./components/PreGameOverlay.vue";
 
 // 2. IMPORTAÇÃO DA LÓGICA DE NEGÓCIO MODULARIZADA (Composable)
 import { useSpellCoach } from "./composables/useSpellCoach";
@@ -136,6 +137,11 @@ const {
     />
   </div>
 
+  <!-- Janela de Análise Pré-Jogo (loading screen) -->
+  <div v-else-if="windowLabel === 'pre-game'" class="pregame-window">
+    <PreGameOverlay />
+  </div>
+
   <!-- Fallback de depuração de segurança -->
   <div v-else class="fallback-debug">Window: {{ windowLabel }}</div>
 </template>
@@ -180,5 +186,6 @@ Usamos layouts Flexbox e CSS Grid para manter tudo 100% responsivo e otimizado.
 .rune-overlay-wrapper { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: transparent !important; overflow: hidden; }
 .ward-map-window { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: transparent !important; }
 .postgame-window { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: transparent !important; }
+.pregame-window { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: transparent !important; }
 .fallback-debug { padding: 20px; background: rgba(0,0,0,0.8); color: white; border: 1px solid red; }
 </style>

@@ -81,9 +81,9 @@ const topWards = computed(() => props.wards.slice(0, 6));
 
     <!-- Mapa -->
     <div class="map-container">
-      <!-- Minimap real do LoL (Summoner's Rift) -->
+      <!-- Minimap real do LoL (Summoner's Rift) — bundled localmente para evitar 403 no CDN -->
       <img
-        src="https://ddragon.leagueoflegends.com/cdn/img/map/map11.png"
+        src="/minimap.png"
         class="minimap-img"
         alt="minimap"
         draggable="false"

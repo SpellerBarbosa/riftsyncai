@@ -17,6 +17,12 @@ pub fn start_background_bridge(handle: tauri::AppHandle) {
         // Rastreia se estava em jogo no poll anterior para detectar início de nova partida
         let mut was_in_game = false;
 
+        // Cache do draft final para análise pré-jogo durante o loading screen
+        let mut pre_game_enemy_ids: Vec<(i64, String)> = Vec::new(); // (champion_id, role)
+        let mut pre_game_player_id: i64 = 0;
+        let mut pre_game_player_role_cache: String = String::new();
+        let mut pre_game_elo_cache: String = "GOLD".to_string();
+
         loop {
             // ... (keep LCU connection logic)
             if let Some(ref conn) = lcu_conn {
@@ -470,6 +476,15 @@ pub fn start_background_bridge(handle: tauri::AppHandle) {
                             last_phase = Some(phase.clone());
                         }
 
+                        // Atualiza cache do draft a cada poll — usado ao iniciar a partida
+                        pre_game_player_id = *champion_id;
+                        pre_game_player_role_cache = role.clone();
+                        pre_game_elo_cache = elo.clone();
+                        pre_game_enemy_ids = their_team.iter()
+                            .filter(|m| m.champion_id > 0)
+                            .map(|m| (m.champion_id, m.assigned_position.clone()))
+                            .collect();
+
                         if raw_id > 0 {
                             if let Some(state) = handle.try_state::<db::DbState>() {
                                 let pool = &state.0;
@@ -530,6 +545,58 @@ pub fn start_background_bridge(handle: tauri::AppHandle) {
             // Reseta CoachState para que todas as one-shot tips (animation cancel,
             // recall timing, respawn warnings, jungle clear, etc.) disparem novamente.
             if is_in_game && !was_in_game {
+                // Dispara análise pré-jogo durante o loading screen (matchups 1v1 vs cada inimigo)
+                if pre_game_player_id > 0 && !pre_game_enemy_ids.is_empty() {
+                    let h = handle.clone();
+                    let enemy_ids = std::mem::take(&mut pre_game_enemy_ids);
+                    let player_id = pre_game_player_id;
+                    let p_role = pre_game_player_role_cache.clone();
+                    let elo_snap = pre_game_elo_cache.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Some(db_state) = h.try_state::<crate::db::DbState>() {
+                            let pool = &db_state.0;
+                            let player_champ = match crate::db::coach_service::get_champion_id_by_key(pool, player_id as i32).await {
+                                Ok(Some(n)) => n,
+                                _ => return,
+                            };
+                            let mut matchups_json = Vec::new();
+                            let mut avoid_list: Vec<String> = Vec::new();
+                            for (eid, erole) in &enemy_ids {
+                                if let Ok(Some(ename)) = crate::db::coach_service::get_champion_id_by_key(pool, *eid as i32).await {
+                                    let display = helpers::format_champion_display_name(&ename);
+                                    let role_disp = match erole.to_uppercase().as_str() {
+                                        "TOP" => "Top", "JUNGLE" => "JG", "MIDDLE" => "Mid",
+                                        "BOTTOM" => "ADC", "UTILITY" => "Sup", _ => "?",
+                                    };
+                                    let (wr, verdict) = match crate::db::coach_service::get_matchup(pool, &player_champ, &ename, Some(&elo_snap)).await {
+                                        Ok(Some(m)) => {
+                                            let w = m.win_rate.unwrap_or(0.5);
+                                            let v = if w >= 0.53 { "win" } else if w < 0.47 { "avoid" } else { "even" };
+                                            (w, v.to_string())
+                                        }
+                                        _ => (0.5_f64, "unknown".to_string()),
+                                    };
+                                    if verdict == "avoid" { avoid_list.push(display.clone()); }
+                                    matchups_json.push(serde_json::json!({
+                                        "enemy": display,
+                                        "role": role_disp,
+                                        "win_rate": wr,
+                                        "verdict": verdict,
+                                    }));
+                                }
+                            }
+                            println!("[PreGame] {} vs {:?} — avoid: {:?}", player_champ, matchups_json.len(), avoid_list);
+                            let _ = h.emit("pre-game-analysis", serde_json::json!({
+                                "player_champion": helpers::format_champion_display_name(&player_champ),
+                                "player_role": p_role,
+                                "matchups": matchups_json,
+                                "avoid_1v1": avoid_list,
+                            }));
+                        }
+                    });
+                    pre_game_player_id = 0;
+                }
+
                 coach_state = crate::live_coach::CoachState::new();
                 last_tip_emit_time = -30.0;
                 let _ = handle.emit("game-started", serde_json::json!({}));
