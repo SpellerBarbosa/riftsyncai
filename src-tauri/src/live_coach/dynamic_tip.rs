@@ -46,8 +46,8 @@ pub fn get_dynamic_coaching_tip(
         if game_time >= 200.0 && game_time < 215.0 && !state.respawn_warnings_sent.contains("scuttle_1") {
             state.respawn_warnings_sent.insert("scuttle_1".to_string());
             return Some((
-                "🦀 Aronguejo — 10s!".to_string(),
-                "Aronguejo em 10s — posicione no rio agora.".to_string()
+                "🦀 Aronguejo — 10s".to_string(),
+                "Aronguejo em 10s. Posicione no lado de baixo do rio agora — o escudo de visão vale muito no early.".to_string()
             ));
         }
         // Segundo Aronguejo: ~5:50 (3:30 inicial + 2:30 respawn = 360s)
@@ -55,24 +55,23 @@ pub fn get_dynamic_coaching_tip(
             state.respawn_warnings_sent.insert("scuttle_2".to_string());
             return Some((
                 "🦀 Segundo Aronguejo — 10s".to_string(),
-                "Segundo Aronguejo nascendo — avalie se vale contestar.".to_string()
+                "Segundo Aronguejo em 10s. Pegue se o Dragão estiver vivo — controle de visão dobrado no Rio.".to_string()
             ));
         }
         // Alerta Buffs: 6:25 (nasce 6:40)
         if game_time >= 385.0 && game_time < 395.0 && !state.respawn_warnings_sent.contains("buffs_1") {
             state.respawn_warnings_sent.insert("buffs_1".to_string());
             return Some((
-                "🛡️ Bufos em 15s".to_string(),
-                "Campo de bônus renascendo — garanta ou rastreie o caçador inimigo.".to_string()
+                "🛡️ Campos de Bônus — 15s".to_string(),
+                "Red/Blue renascendo em 15s. Rastreie o caçador inimigo — se ele sumiu, o campo dele está vulnerável para invasão.".to_string()
             ));
         }
         // Pre-posicionamento Dragon: alerta ~60-70s antes do 2º Dragon (aprox 10:00 = 600s)
-        // O JG deve estabelecer visão no Dragon pit antes de iniciar, não 5s antes
         if game_time >= 540.0 && game_time < 570.0 && !state.dragon_setup_warned {
             state.dragon_setup_warned = true;
             return Some((
-                "🐉 Preparação Dragão".to_string(),
-                "Dragão em breve — ward no rio e prioridade de rota.".to_string()
+                "🐉 Setup Dragão — 1min".to_string(),
+                "Dragão em ~1min. Ward no arbusto do rio agora. Não inicie sem visão — rasteje o Arauto/JG inimigo antes.".to_string()
             ));
         }
         // Voidgrubs last chance: despawnam às 14:00 (840s), alerta em 13:20 (800s)
@@ -80,16 +79,15 @@ pub fn get_dynamic_coaching_tip(
             state.grubs_last_chance_warned = true;
             return Some((
                 "🐛 Vastilarvas — Última Chance".to_string(),
-                "Vastilarvas somem às 14:00 — priorize os acúmulos restantes agora.".to_string()
+                "Vastilarvas somem às 14:00. Se faltam acúmulos, abandone a rota agora — cada stack vale pressão de estrutura no late.".to_string()
             ));
         }
         // Aviso de Baron Nashusor: nasce às 20:00 (1200s), alerta aos 19:00 (1140s)
-        // Pesquisa: "sentinelas 60-90 segundos ANTES de objetivo, nunca 5s antes"
         if game_time >= 1140.0 && game_time < 1160.0 && !state.baron_warned {
             state.baron_warned = true;
             return Some((
-                "💜 Barão — 1 Minuto".to_string(),
-                "Barão em 60s — agrupe no rio, não morra antes.".to_string()
+                "💜 Barão em 60s — Agrupe".to_string(),
+                "Barão em 60s. Termine a onda, empurre para dentro e agrupe no Rio AGORA — quem chega morto não conta.".to_string()
             ));
         }
     }
@@ -163,52 +161,52 @@ pub fn get_dynamic_coaching_tip(
         state.animation_cancel_suggested = true;
         let (title, cancel_tip) = match active_player_champ.to_lowercase().as_str() {
             "riven" => (
-                "⚡ Riven: Fast Q Cancel".to_string(),
-                "Auto → Q no frame do projétil → movimento → próximo auto.".to_string()
+                "Riven: Cancel de Q".to_string(),
+                "Ataca, usa Q enquanto o golpe ainda está saindo, move. Repete em loop.".to_string()
             ),
             "yasuo" => (
-                "⚡ Yasuo: E-Q Cancel".to_string(),
-                "E no minion → Q no impacto do dash para combo rápido.".to_string()
+                "Yasuo: E no minion antes do Q".to_string(),
+                "Dasha no minion e usa Q logo no impacto. O combo sai mais rápido assim.".to_string()
             ),
             "caitlyn" => (
-                "⚡ Caitlyn: E-Q-W".to_string(),
-                "E para trás → Q imediato → W onde o inimigo vai pousar.".to_string()
+                "Caitlyn: E-Q-W".to_string(),
+                "Dasha para trás, Q imediato, W no chão onde o inimigo vai cair.".to_string()
             ),
             "renekton" => (
-                "⚡ Renekton: W Cancel".to_string(),
-                "W fortalecido → Q ou E imediatamente após o stun.".to_string()
+                "Renekton: W fortalecido".to_string(),
+                "Usa W com fúria para stunar, depois Q ou E imediatamente para maximizar o dano.".to_string()
             ),
             "leesin" | "lee sin" => (
-                "⚡ Lee Sin: Insec".to_string(),
-                "Q → ward atrás do alvo durante o voo → W → R.".to_string()
+                "Lee Sin: Insec".to_string(),
+                "Q no alvo, coloca ward atrás dele durante o voo, W no ward, R.".to_string()
             ),
             "vayne" => (
-                "⚡ Vayne: Wall Tumble".to_string(),
-                "Auto → Q rente à parede → auto imediato — reset de ataque.".to_string()
+                "Vayne: Orbwalk na parede".to_string(),
+                "Ataca, Q rente à parede, ataca de novo. O Q reseta a animação.".to_string()
             ),
             "rengar" => (
-                "⚡ Rengar: Burst".to_string(),
-                "Salte com 4 de fúria → Q no ar → W e E antes de pousar.".to_string()
+                "Rengar: Burst com 4 de fúria".to_string(),
+                "Salta com fúria máxima, Q no ar, W e E antes de pousar no chão.".to_string()
             ),
             "aatrox" => (
-                "⚡ Aatrox: Q-E Redirect".to_string(),
-                "Q → E durante a animação para acertar a ponta da espada.".to_string()
+                "Aatrox: Posição no Q".to_string(),
+                "Usa E durante a animação do Q para reposicionar e acertar a ponta da espada.".to_string()
             ),
             "lucian" => (
-                "⚡ Lucian: Passive Reset".to_string(),
-                "Ability → double shot → E no frame do segundo projétil.".to_string()
+                "Lucian: Dois tiros por habilidade".to_string(),
+                "Cada habilidade reseta a passiva. Usa habilidade, dois tiros, repete.".to_string()
             ),
             "alistar" => (
-                "⚡ Alistar: W-Q".to_string(),
-                "W no alvo → Q exatamente antes do impacto do headbutt.".to_string()
+                "Alistar: W-Q em sequência".to_string(),
+                "W no inimigo e Q logo antes do impacto. O inimigo voa em vez de só cair.".to_string()
             ),
             "ezreal" => (
-                "⚡ Ezreal: R-E Cancel".to_string(),
-                "R → E imediato para reposicionar com o projétil em voo.".to_string()
+                "Ezreal: R e reposiciona".to_string(),
+                "Usa R e imediatamente E para mudar de posição enquanto o R ainda está voando.".to_string()
             ),
             _ => (
-                "⚡ Caitar — Cancel de Auto".to_string(),
-                "Auto → movimento após o projétil sair → próximo auto.".to_string()
+                "Orbwalk: ataca e move em loop".to_string(),
+                "Ataca, move imediatamente depois, ataca de novo. Mantém DPS sem ficar parado.".to_string()
             )
         };
         return Some((title, cancel_tip));
@@ -325,9 +323,15 @@ pub fn get_dynamic_coaching_tip(
                 if is_ganker && !tel.is_visible && tel.fog_duration >= 10.0 && tel.fog_duration <= 25.0 {
                     state.last_gank_alert_time = game_time;
                     let role_display = if tel.role == "JUNGLE" { "Caçador" } else { "Meio" };
+                    // Dica urgente com ação concreta baseada no tempo de névoa
+                    let action = if tel.fog_duration < 15.0 {
+                        "Recue IMEDIATAMENTE para a torre."
+                    } else {
+                        "Não avance na wave — posição segura sob torre."
+                    };
                     return Some((
-                        "🚨 Alerta de Emboscada".to_string(),
-                        format!("{} ({}) sumiu há {:.0}s — fique perto da torre.", role_display, tel.champion_name, tel.fog_duration)
+                        format!("🚨 {} Sumiu — Perigo!", role_display),
+                        format!("{} ({}) fora de visão há {:.0}s. {} Não vale a kill se você morrer no processo.", role_display, tel.champion_name, tel.fog_duration, action)
                     ));
                 }
             }
@@ -389,7 +393,7 @@ pub fn get_dynamic_coaching_tip(
                         let enemy_name = enemy["championName"].as_str().unwrap_or("Inimigo");
                         state.last_gank_alert_time = game_time;
                         return Some((
-                            "🎯 Gank Window — JG".to_string(),
+                            "🎯 Janela de Gank — JG".to_string(),
                             format!(
                                 "{} ({}) a {:.0}% HP — entre pelo flanco da selva, não pelo corredor da rota. Coordene com o laner para CC primeiro.",
                                 enemy_name, lane_display, enemy_hp_perc * 100.0
@@ -439,30 +443,31 @@ pub fn get_dynamic_coaching_tip(
     if !current_phase_id.is_empty() && state.last_phase != current_phase_id {
         state.last_phase = current_phase_id.clone();
         state.last_alert_time = game_time;
-    } else if game_time - state.last_alert_time >= 90.0 && can_fire(state, "ADV_CONTEXT", 5).is_some() {
+    } else if game_time - state.last_alert_time >= 90.0 && can_fire(state, "ADV_CONTEXT", 12).is_some() {
         state.last_alert_time = game_time;
 
         // --- ADVERSARIAL MATCHUP FEEDBACK (baseado em dados reais da tab) ---
-        if !enemy_laner_champ.is_empty() && game_time > 300.0 {
+        if !enemy_laner_champ.is_empty() && game_time > 120.0 {
             if enemy_laner_kills >= active_player_kills + 2 {
                 state.active_recommendation = Some(ActiveRec::PlaySafe {
                     enemy_champ: enemy_laner_champ.clone(),
                     start_time: game_time,
                     initial_deaths: active_player_deaths,
                 });
+                let gold_gap = (enemy_laner_kills - active_player_kills) * 300;
                 return Some((
-                    "⚔️ Oponente com Vantagem".to_string(),
-                    format!("{} com {} kills de frente — não tente x1 sem poke prévio ou engage do JG. Jogue safe na torre e aguarde equalização.", enemy_laner_champ, enemy_laner_kills)
+                    format!("⚔️ {} em Vantagem — Jogue Seguro", enemy_laner_champ),
+                    format!("{} kills à frente (~{}g de vantagem). Fique sob a torre, farm first — nunca inicie sem JG visível. Equalize antes de arriscar.", enemy_laner_kills, gold_gap)
                 ));
             } else if active_player_kills >= enemy_laner_kills + 2 {
                 return Some((
-                    "🔥 Vantagem na Rota".to_string(),
-                    format!("{} kills de frente — converta em pressão de torre ou roam. Ouro de kills sem pressão de objetivos não vence o jogo.", active_player_kills)
+                    "🔥 Vantagem — Converta Agora".to_string(),
+                    format!("{} kills de frente. NÃO banque — empurre para Tier 1, chame o JG e force o próximo objetivo. Kill gold sem estrutura não fecha o jogo.", active_player_kills)
                 ));
             } else if enemy_laner_cs > active_player_cs + 20 {
                 return Some((
-                    "🌾 CS Gap Crítico".to_string(),
-                    format!("{} minions de diferença — cada 15 CS equivale a uma kill em ouro. Priorize last hit em vez de trades sem conversão.", enemy_laner_cs - active_player_cs)
+                    "🌾 CS Gap — Recupere o Farm".to_string(),
+                    format!("{} minions de diferença (~{}g a menos). Last hit em vez de trades — cada wave perdida é 200g que o inimigo converte em item.", enemy_laner_cs - active_player_cs, (enemy_laner_cs - active_player_cs) / 15 * 300)
                 ));
             }
         }
@@ -479,7 +484,7 @@ pub fn get_dynamic_coaching_tip(
             }
         }
 
-        if !fed_enemy_champ.is_empty() && game_time > 300.0 {
+        if !fed_enemy_champ.is_empty() && game_time > 180.0 {
             state.active_recommendation = Some(ActiveRec::PlaySafe {
                 enemy_champ: fed_enemy_champ.clone(),
                 start_time: game_time,
@@ -501,54 +506,52 @@ pub fn get_dynamic_coaching_tip(
     let (title, tip) = match role.to_uppercase().as_str() {
         "TOP" => {
             let top_early2_tip = if game_time < 480.0 {
-                "Vastilarvas nascem às 5:00 no seu lado! Puxe a wave agora e ajude seu JG a garantir o objetivo de cerco."
+                "Vastilarvas nascem às 5:00 — EMPURRE A WAVE agora, entre na selva com o JG e leve os stacks. Peça priority 30s antes."
             } else {
-                "Arauto do Vale ativo na fenda! Puxe a wave, ganhe prioridade e ajude seu JG a garantir o Arauto."
+                "Arauto do Vale ativo — empurre para dentro, teleporte para o Arauto e quebre a Tier 1 inimiga. É a melhor troca de recursos do mapa."
             };
             match current_phase_id.as_str() {
-                "EARLY_1" => ("Top Laning".to_string(), "Top: pega Lvl 2 na primeira wave, domina o arbusto de cima e warda o rio aos 2:45.".to_string()),
-                "EARLY_2" => ("🎯 Objetivo Top!".to_string(), top_early2_tip.to_string()),
-                "MID_1" => ("Split Push".to_string(), "Split ativo. Se tiver TP pronto, empurre a side oposta ao Baron ou Dragão.".to_string()),
-                _ => ("Late Game Top".to_string(), "Late game: decida entre flanquear com TP na backline ou fazer peeling pro carry.".to_string())
+                "EARLY_1" => ("🗺️ Topo — Early".to_string(), "Pegue Nível 2 na 3ª minion maga. Domine o arbusto de cima para pressão de zona. Ward no rio aos 2:45 — custo: 75g, valor: vida.".to_string()),
+                "EARLY_2" => ("🎯 Objetivo no Topo!".to_string(), top_early2_tip.to_string()),
+                "MID_1" => ("🔀 Split Push Ativo".to_string(), "Empurre a rota OPOSTA ao Barão/Dragão. Força 2 inimigos a defender, criando 3x4 para o time. TP pronto = janela de teleporte para lutas.".to_string()),
+                _ => ("⚔️ Late — Flanqueie ou Peele".to_string(), "Escolha agora: flanquear pela retaguarda com TP e executar o carry inimigo, OU absorver dano e proteger o seu. Ambos os caminhos fecham o jogo.".to_string())
             }
         },
         "JUNGLE" => {
             let obj_tip = if game_time < 480.0 {
-                // 5:00-8:00: Vastilarvas e Dragão disponíveis
-                "Vastilarvas (top) e Dragão (bot) estão no mapa — decida com o time qual pegar primeiro!"
+                "Vastilarvas (top) e Dragão (bot) disponíveis. Vença a moeda: stacks de Voidgrub dão pressão de estrutura no late, Dragão dá escalamento. Decida baseado na composição."
             } else {
-                // 8:00+: Arauto do Vale disponível
-                "Arauto do Vale ativo! Garanta visão na fenda e trackeia o JG inimigo antes de iniciar."
+                "Arauto do Vale ativo. Garanta visão na Fenda dos Ventos com Sweeper ANTES de iniciar — nunca inicie sem ver o JG inimigo no minimapa."
             };
             match current_phase_id.as_str() {
-                "EARLY_1" => ("📍 Trackeia o JG".to_string(), "Observe qual rota inimiga chegou atrasada — isso revela por onde o JG deles começou. Trackeia o pathing!".to_string()),
-                "EARLY_2" => ("🎯 Objetivos!".to_string(), obj_tip.to_string()),
-                "MID_1" => ("👁️ Controle Rio".to_string(), "Sweeper ativado. Limpe visão no rio, crie armadilhas e jogue com quem está carregando.".to_string()),
-                _ => ("⚡ Objetivo Decisivo".to_string(), "Não morra agora — sua presença vale Barão ou Dragão Ancião. Entre no objetivo só com posição e vida suficientes.".to_string())
+                "EARLY_1" => ("📍 Trackeia o Pathing".to_string(), "Qual rota inimiga chegou atrasada na wave? Isso revela por onde o JG deles começou. Mirre o camp oposto e preveja o próximo gank.".to_string()),
+                "EARLY_2" => ("🎯 Objetivos Disponíveis".to_string(), obj_tip.to_string()),
+                "MID_1" => ("👁️ Controle Rio — Sweeper".to_string(), "Ative o Sweeper no rio agora. Cada sentinela inimiga removida é informação que você retira do adversário. Jogue com quem estiver carregando.".to_string()),
+                _ => ("⚡ Não Morra Antes do Objetivo".to_string(), "Barão/Ancião são decisivos. Se você morrer antes, o time perde o objetivo E o fight. Entre APENAS com vida >50% e o inimigo sem summ chave.".to_string())
             }
         },
         "MID" | "MIDDLE" => {
             match current_phase_id.as_str() {
-                "EARLY_1" => ("Prioridade Mid".to_string(), "Mid: pegue Lvl 2 rápido para zonear e garanta o controle do rio.".to_string()),
-                "EARLY_2" => ("Roaming Mid".to_string(), "Empurre a wave rápido na torre deles e procure roam ou warda as galinhas.".to_string()),
-                "MID_1" => ("Side Farm".to_string(), "ADC foi Mid? Vá para a side lane farmar e obter recursos com segurança.".to_string()),
-                _ => ("Picks na Névoa".to_string(), "Fique na névoa de guerra e procure pick-offs rápidos antes das lutas.".to_string())
+                "EARLY_1" => ("🗺️ Meio — Controle do Rio".to_string(), "Pegue Nível 2 primeiro (3ª minion maga). Ward nas entradas do rio nos 2 lados — você é o pivot do mapa, informação é obrigação.".to_string()),
+                "EARLY_2" => ("🗺️ Shove e Roame".to_string(), "Empurre a wave ATÉ a torre deles e IMEDIATAMENTE rotacione — top para pressão de objetivo, bot para Dragon. Não fique parado esperando.".to_string()),
+                "MID_1" => ("🌾 Rota Lateral Livre".to_string(), "ADC foi pro Meio? Farm a rota bot com segurança — são 150+ minions acumulados = 3000g para você. Visão antes de avançar.".to_string()),
+                _ => ("🎯 Pick Comp — Névoa".to_string(), "Jogue na névoa de guerra. Um flanco bem executado com R + CC abre teamfight sem troca. Não avance com 5 inimigos visíveis.".to_string())
             }
         },
         "ADC" | "BOTTOM" => {
             match current_phase_id.as_str() {
-                "EARLY_1" => ("Atirador Early".to_string(), "ADC: pegue Lvl 2 na wave 1 + 3 minions magos. Pune o recuo deles.".to_string()),
-                "EARLY_2" => ("Farm Seguro".to_string(), "Foque em pegar barricadas seguras e só avance com visão profunda no rio.".to_string()),
-                "MID_1" => ("Mid Rotação".to_string(), "Rotacione para o Mid! É mais seguro coletar ouro sob a escolta do suporte.".to_string()),
-                _ => ("Fights Atirador".to_string(), "Fique atrás da linha de frente. Bata no alvo mais próximo e preserve seus recursos defensivos para a ameaça real.".to_string())
+                "EARLY_1" => ("🎯 Atirador — Nível 2 Primeiro".to_string(), "Pegue Nível 2 na wave 1 + 3 magos. Se chegar antes: all-in imediato. Se chegar depois: fique safe sob tower e farme.".to_string()),
+                "EARLY_2" => ("🌾 Farm — Barricadas Seguras".to_string(), "Pegue plates de torre com o suporte por perto. Cada plate = 160g. Não cruce a meia rota sem ward no tri-bush — JG pode flanquear.".to_string()),
+                "MID_1" => ("🗺️ Rotacione pro Meio".to_string(), "Vá pro Mid com o suporte — é a rota mais segura para farm em grupo. Bot vazia por muito tempo = gank gratuito. Mova com visão.".to_string()),
+                _ => ("⚔️ Teamfight — Posicionamento".to_string(), "NUNCA fique parado em teamfight. Ataque o alvo mais próximo enquanto se move para trás da linha de frente. Sua vida vale mais que a kill.".to_string())
             }
         },
         "SUPPORT" | "UTILITY" => {
             match current_phase_id.as_str() {
-                "EARLY_1" => ("Suporte Arbusto".to_string(), "Sup: domine o arbusto da rota. Pressione o ADC inimigo no last hit dele.".to_string()),
-                "EARLY_2" => ("Roam Suporte".to_string(), "ADC recuou ou congelou wave? Faça um roam rápido no Mid ou rio.".to_string()),
-                "MID_1" => ("Barreira de Informação".to_string(), "Prepare informação antes dos objetivos: acompanhe seu time pelo rio e evite entrar sozinho na selva inimiga.".to_string()),
-                _ => ("Proteção Lutas".to_string(), "Peeling total. Use stuns e exaustão para salvar quem tá batendo nas lutas.".to_string())
+                "EARLY_1" => ("🌿 Suporte — Arbusto Lateral".to_string(), "Domine o arbusto lateral: force o ADC inimigo a last hit sob pressão ou zoneie completamente. Cada minion perdido é 20g que o ADC não tem.".to_string()),
+                "EARLY_2" => ("🗺️ Roam ou Ward".to_string(), "ADC está seguro e com wave congelada? Roame pro Mid ou plante ward na entrada da selva inimiga. Informação vale mais que presença passiva no bot.".to_string()),
+                "MID_1" => ("👁️ Visão Antes do Objetivo".to_string(), "Comece a plantar wards 90s ANTES do próximo objetivo. Tri-bush, fenda do Barão/Dragão e entrada da selva — se você chegou 5s antes deles, venceu o objetivo.".to_string()),
+                _ => ("🛡️ Peeling Total".to_string(), "Sua função agora: salvar o carry. CC no assassino que pula, Exhaust no fed inimigo, escudo/heal no último segundo. Não inicie — REAJA.".to_string())
             }
         },
         _ => {
@@ -614,17 +617,18 @@ pub fn get_dynamic_context_alert(
 
     // 3+ inimigos mortos = janela de objetivo imediata
     if dead_enemy_count >= 3 && game_time > 400.0 {
+        let names_str = dead_enemy_names[..dead_enemy_count.min(3)].join(", ");
         return (
-            "🔥 Vantagem Numerica".to_string(),
-            format!("{}+ inimigos mortos — janela de Baron/Dragon agora. Cada segundo que passa e HP que eles regeneram reduz a vantagem.", dead_enemy_count)
+            format!("🔥 {}x0 — Inicie Objetivo AGORA", dead_enemy_count),
+            format!("{} mortos. Vá ao Baron/Dragon IMEDIATAMENTE — cada segundo que espera eles voltam com vida cheia e a janela fecha.", names_str)
         );
     }
 
     // JG morto = selva free para invadir
     if enemy_jg_dead {
         return (
-            "⚔️ JG Inimigo Morto".to_string(),
-            "Selva inimiga esta free — invada e roube campos do lado oposto. Cada campo equivale a 120-170g sem risco de confronto.".to_string()
+            "⚔️ JG Inimigo Morto — Invada".to_string(),
+            "Caçador inimigo morto — selva dele está LIVRE. Entre pelo lado oposto ao seu JG, roube Red/Blue/campos. 120-170g por campo sem risco de combate.".to_string()
         );
     }
 
@@ -636,30 +640,30 @@ pub fn get_dynamic_context_alert(
     });
     if enemy_bot_dead && enemy_support_dead && game_time > 180.0 {
         return (
-            "🐉 Dragon — Gratis".to_string(),
-            "ADC e Suporte inimigos mortos — Dragão com baixa contestação. Inicie com o caçador vivo e aliados próximos; não faça sozinho se a vida estiver baixa.".to_string()
+            "🐉 Dragon — Inicie Agora".to_string(),
+            "ADC e Suporte inimigos mortos — Dragon sem contestação real. Chame o JG, confirme visão no arbusto e inicie imediatamente. Não espere vida perfeita.".to_string()
         );
     }
     if enemy_bot_dead && game_time > 180.0 {
         return (
-            "🐉 Dragon Prioritario".to_string(),
-            "ADC inimigo morto — boa janela para Dragon. Garanta visao no rio inferior antes de iniciar; suporte deles pode ainda contestar.".to_string()
+            "🐉 Dragon — Janela Aberta".to_string(),
+            "ADC inimigo morto — Dragon com contestação reduzida. Ward no arbusto do rio antes de iniciar; Suporte deles ainda vivo pode tentar roubar.".to_string()
         );
     }
 
     // Mid morto = pressione a torre mid
     if enemy_mid_dead {
         return (
-            "🎯 Mid Morto — Torre".to_string(),
-            "Mid inimigo morto — shove rapido a wave mid e pressione a torre. Cada segundo de respawn e ouro de torre que voce pode coletar.".to_string()
+            "🎯 Mid Morto — Vá À Torre".to_string(),
+            "Mid inimigo morto — shove imediato da wave e ataque a torre. Cada tiro de torre que você pega é ouro que vai para o seu time. Não volte à base agora.".to_string()
         );
     }
 
-    // Se algum inimigo morreu mas nao e uma janela de objetivo clara
+    // Se algum inimigo morreu mas não é uma janela de objetivo clara
     if !dead_enemy_names.is_empty() && game_time > 300.0 {
         return (
-            "🔥 Janela Aberta".to_string(),
-            format!("{} morto — pressione o objetivo mais proximo ou farm side lane livre. Cada morte inimiga e espaco de mapa que voce deve converter.", dead_enemy_names[0])
+            format!("🔥 {} Morto — Converta", dead_enemy_names[0]),
+            format!("{} morto por ~20s. Escolha: torre mais próxima, campo inimigo livre, ou wave lateral adiantada. Não fique parado esperando.", dead_enemy_names[0])
         );
     }
 
@@ -676,7 +680,7 @@ pub fn get_dynamic_context_alert(
             if enemy_mid_dead {
                 ("🔥 Puxe e Pressione".to_string(), "Mid deles morreu — clear rapido e pressione a torre. Nao deixe a wave bater de graca.".to_string())
             } else {
-                ("🗺️ Side Lane Farming".to_string(), "Shove a wave mid e farme a side lane mais proxima. Ouro flutuante no mapa com visao segura e EV positivo.".to_string())
+                ("🗺️ Farme a Rota Lateral".to_string(), "Shove a wave do meio e farme a rota lateral mais próxima. Ouro flutuante no mapa com visão segura.".to_string())
             }
         },
         "ADC" | "BOTTOM" => {
