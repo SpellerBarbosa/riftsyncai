@@ -59,5 +59,15 @@ jobs:
             ### Instalacao
             Baixe o arquivo `.exe` abaixo e execute. O app atualiza automaticamente nas proximas versoes.
           releaseDraft: false
-          prerelease: ${{ startsWith(github.ref_name, 'v0.') }}
+          prerelease: false
           includeUpdaterJson: true
+
+      - name: Upload instalador com nome fixo
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          SRC="src-tauri/target/release/bundle/nsis/rift-sync-ai_${VERSION}_x64-setup.exe"
+          gh release upload "${{ github.ref_name }}" "$SRC#rift-sync-ai-setup.exe" --clobber
