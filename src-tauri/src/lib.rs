@@ -293,8 +293,10 @@ pub fn run() {
             window::get_monitor_dimensions,
             window::resize_main_window,
             voice::get_kokoro_status,
+            voice::get_audio_status,
             voice::play_voice,
             voice::stop_voice,
+            voice::test_audio_output,
             download_and_install_update
         ])
         .run(tauri::generate_context!())

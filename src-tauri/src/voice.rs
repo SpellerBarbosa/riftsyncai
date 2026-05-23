@@ -22,6 +22,7 @@ struct PlayRequest {
 pub struct VoicePlayer {
     sender: std::sync::Mutex<std::sync::mpsc::Sender<PlayRequest>>,
     sink: std::sync::Arc<std::sync::Mutex<Option<rodio::Sink>>>,
+    pub audio_status: std::sync::Arc<std::sync::Mutex<String>>,
 }
 
 impl VoicePlayer {
@@ -29,45 +30,42 @@ impl VoicePlayer {
         let (tx, rx) = std::sync::mpsc::channel::<PlayRequest>();
         let sink = std::sync::Arc::new(std::sync::Mutex::new(None::<rodio::Sink>));
         let sink_clone = sink.clone();
+        let audio_status = std::sync::Arc::new(std::sync::Mutex::new("inicializando".to_string()));
+        let status_clone = audio_status.clone();
 
         std::thread::spawn(move || {
-            println!("[VoicePlayer] Inicializando dispositivo de áudio nativo na thread dedicada...");
+            let set_status = |msg: &str| {
+                if let Ok(mut s) = status_clone.lock() { *s = msg.to_string(); }
+            };
 
-            // Tenta abrir o dispositivo de áudio; reinicia se o dispositivo mudar ou falhar.
-            let mut stream_handle: Option<(rodio::OutputStream, rodio::OutputStreamHandle)> = rodio::OutputStream::try_default().ok();
-            if stream_handle.is_some() {
-                println!("[VoicePlayer] Dispositivo de áudio padrão aberto com sucesso!");
-            } else {
-                eprintln!("[VoicePlayer] AVISO: falha na abertura inicial do dispositivo de áudio.");
-            }
+            set_status("abrindo dispositivo...");
+            let mut stream_handle: Option<(rodio::OutputStream, rodio::OutputStreamHandle)> = match rodio::OutputStream::try_default() {
+                Ok(h) => { set_status("ok"); Some(h) }
+                Err(e) => { set_status(&format!("erro ao abrir dispositivo: {}", e)); None }
+            };
 
             while let Ok(req) = rx.recv() {
-                // Para qualquer áudio tocando antes de iniciar o novo
                 {
                     let mut active_sink = sink_clone.lock().unwrap();
-                    if let Some(s) = active_sink.take() {
-                        s.stop();
-                    }
+                    if let Some(s) = active_sink.take() { s.stop(); }
                 }
 
-                // Se não há handle válida, tenta reinicializar o dispositivo de áudio
                 if stream_handle.is_none() {
-                    println!("[VoicePlayer] Tentando reinicializar dispositivo de áudio...");
-                    stream_handle = rodio::OutputStream::try_default().ok();
-                    if stream_handle.is_some() {
-                        println!("[VoicePlayer] Dispositivo de áudio reinicializado com sucesso.");
-                    } else {
-                        eprintln!("[VoicePlayer] Falha ao reinicializar dispositivo de áudio — pulando reprodução.");
-                        let _ = req.done_tx.send(());
-                        continue;
-                    }
+                    stream_handle = match rodio::OutputStream::try_default() {
+                        Ok(h) => { set_status("ok"); Some(h) }
+                        Err(e) => {
+                            set_status(&format!("erro ao reinicializar dispositivo: {}", e));
+                            let _ = req.done_tx.send(());
+                            continue;
+                        }
+                    };
                 }
 
                 let handle = &stream_handle.as_ref().unwrap().1;
                 match rodio::Sink::try_new(handle) {
                     Err(e) => {
-                        eprintln!("[VoicePlayer] Sink::try_new falhou ({}). Descartando stream e tentando na próxima.", e);
-                        stream_handle = None; // força reinit no próximo request
+                        set_status(&format!("erro ao criar sink: {}", e));
+                        stream_handle = None;
                         let _ = req.done_tx.send(());
                     }
                     Ok(new_sink) => {
@@ -84,18 +82,15 @@ impl VoicePlayer {
                                 match std::fs::File::open(&path_str) {
                                     Ok(file) => match rodio::Decoder::new(std::io::BufReader::new(file)) {
                                         Ok(source) => { new_sink.append(source); true }
-                                        Err(e) => { eprintln!("[VoicePlayer] Erro ao decodificar WAV '{}': {}", path_str, e); false }
+                                        Err(e) => { set_status(&format!("erro ao decodificar WAV: {}", e)); false }
                                     }
-                                    Err(e) => { eprintln!("[VoicePlayer] Erro ao abrir WAV '{}': {}", path_str, e); false }
+                                    Err(e) => { set_status(&format!("erro ao abrir WAV: {}", e)); false }
                                 }
                             }
                         };
 
                         if appended {
-                            // Armazena sink ativo para que stop() possa cancelar
                             { *sink_clone.lock().unwrap() = Some(new_sink); }
-
-                            // Aguarda término natural ou cancelamento por stop()
                             loop {
                                 std::thread::sleep(std::time::Duration::from_millis(50));
                                 let is_done = {
@@ -104,7 +99,6 @@ impl VoicePlayer {
                                 };
                                 if is_done { break; }
                             }
-
                             sink_clone.lock().unwrap().take();
                         }
 
@@ -117,6 +111,7 @@ impl VoicePlayer {
         Self {
             sender: std::sync::Mutex::new(tx),
             sink,
+            audio_status,
         }
     }
 
@@ -394,4 +389,57 @@ pub(crate) async fn stop_voice(app: tauri::AppHandle) -> Result<(), String> {
         player.inner().stop();
     }
     Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn get_audio_status(app: tauri::AppHandle) -> Result<String, String> {
+    if let Some(player) = app.try_state::<VoicePlayer>() {
+        let status = player.audio_status.lock().unwrap().clone();
+        Ok(status)
+    } else {
+        Ok("VoicePlayer não inicializado".to_string())
+    }
+}
+
+/// Abre o dispositivo de áudio padrão, toca um beep de 440Hz por 0.5s e retorna
+/// o nome do dispositivo ou a mensagem de erro. Útil para diagnosticar falhas de
+/// reprodução sem precisar do Kokoro.
+#[tauri::command]
+pub(crate) async fn test_audio_output() -> Result<String, String> {
+    use std::f32::consts::PI;
+
+    // Tenta abrir o dispositivo de áudio padrão numa thread bloqueante
+    let result = tokio::task::spawn_blocking(|| -> Result<String, String> {
+        let (stream, handle) = rodio::OutputStream::try_default()
+            .map_err(|e| format!("Falha ao abrir dispositivo de áudio: {}", e))?;
+
+        let sink = rodio::Sink::try_new(&handle)
+            .map_err(|e| format!("Falha ao criar Sink de áudio: {}", e))?;
+
+        // Beep de 440 Hz por 0.5 segundo a 24 kHz
+        let sample_rate = 24000u32;
+        let duration_samples = (sample_rate as f32 * 0.5) as usize;
+        let freq = 440.0f32;
+        let samples: Vec<f32> = (0..duration_samples)
+            .map(|i| {
+                let t = i as f32 / sample_rate as f32;
+                // Envelope de fade-out suave para evitar clique no final
+                let env = 1.0 - (t / 0.5);
+                (2.0 * PI * freq * t).sin() * 0.3 * env
+            })
+            .collect();
+
+        let source = rodio::buffer::SamplesBuffer::new(1, sample_rate, samples);
+        sink.set_volume(0.8);
+        sink.append(source);
+        sink.sleep_until_end();
+
+        // Mantém o stream vivo até o fim da reprodução
+        drop(stream);
+        Ok("OK: Dispositivo de áudio padrão funcionando".to_string())
+    })
+    .await
+    .map_err(|e| format!("Erro interno de thread: {}", e))?;
+
+    result
 }

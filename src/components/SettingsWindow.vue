@@ -37,6 +37,31 @@ const voiceWeights = computed({
 const testVoice = voiceCoach.testVoice;
 const saveVoiceSettings = voiceCoach.saveSettings;
 
+const audioTestResult = ref<string | null>(null);
+const audioTestLoading = ref(false);
+const audioDeviceStatus = ref<string>("");
+
+const loadAudioStatus = async () => {
+  try {
+    audioDeviceStatus.value = await invoke<string>("get_audio_status");
+  } catch { /* silencioso */ }
+};
+
+const testAudioDevice = async () => {
+  audioTestResult.value = null;
+  audioTestLoading.value = true;
+  try {
+    const result = await invoke<string>("test_audio_output");
+    audioTestResult.value = "✅ " + result;
+    await loadAudioStatus();
+  } catch (err: any) {
+    audioTestResult.value = "❌ " + String(err);
+    await loadAudioStatus();
+  } finally {
+    audioTestLoading.value = false;
+  }
+};
+
 const appWindow = getCurrentWindow();
 const isClosing = ref(false);
 
@@ -116,6 +141,7 @@ const close = async () => {
 
 onMounted(() => {
   loadGroqSettings();
+  loadAudioStatus();
 });
 </script>
 
@@ -171,6 +197,9 @@ onMounted(() => {
             <div v-else class="kokoro-loading-box animate-fade" style="border-color: rgba(78, 255, 155, 0.4); background: rgba(78, 255, 155, 0.03);">
               <div class="kokoro-progress-text" style="color: #4eff9b;">
                 ⚡ <strong>Kokoro Local ONNX:</strong> Motor de voz off-line 100% pronto e ativo!
+              </div>
+              <div v-if="audioDeviceStatus && audioDeviceStatus !== 'ok'" style="margin-top: 4px; font-size: 10px; color: #ff9f43;">
+                ⚠️ Dispositivo de áudio: {{ audioDeviceStatus }}
               </div>
             </div>
 
@@ -287,6 +316,12 @@ onMounted(() => {
               <button class="btn-secondary" @click="testVoice" :disabled="voiceCoach.kokoroStatus.value !== 'ready'">
                 🔊 Testar Voz do Coach
               </button>
+              <button class="btn-secondary" @click="testAudioDevice" :disabled="audioTestLoading" style="margin-top: 6px; opacity: 0.8;">
+                🔧 Diagnosticar Saída de Áudio
+              </button>
+              <div v-if="audioTestResult" style="margin-top: 6px; font-size: 10px; padding: 6px 8px; border-radius: 6px; background: rgba(255,255,255,0.05); word-break: break-word;">
+                {{ audioTestResult }}
+              </div>
             </div>
           </div>
         </div>
