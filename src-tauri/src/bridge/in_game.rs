@@ -2,6 +2,70 @@ use tauri::{Emitter, Manager};
 use serde_json::json;
 use crate::db;
 
+// Posições estáticas de ward de alto nível para quando o DB não tem dados do campeão/role.
+// Coordenadas no espaço de jogo LoL (0–15000). Base azul = canto inferior-esquerdo.
+fn static_wards_for_objective(objective_key: &str) -> Vec<crate::db::coach_service::WardPoint> {
+    use crate::db::coach_service::WardPoint;
+    // Pontos clássicos dos montes (arbustos) próximos a cada objetivo neutro
+    let coords: &[(i64, i64)] = match objective_key {
+        "dragon" => &[
+            (10200, 5800), // arbusto entrada azul do pit do Dragão
+            (11000, 3900), // arbusto entrada vermelha / rio sul
+        ],
+        "baron" | "herald" => &[
+            (4200, 11800), // monte tri-bush entrada azul do pit do Barão/Arauto
+            (5800, 10600), // rio médio próximo ao Barão (visão lateral)
+        ],
+        "scuttle" => &[
+            (9200, 5600), // arbusto rio bot perto do Aronguejo
+            (6400, 9300), // arbusto rio top (Aronguejo superior)
+        ],
+        _ => &[],
+    };
+    coords.iter().enumerate()
+        .map(|(i, &(x, y))| WardPoint { x, y, priority: i as i32 + 1 })
+        .collect()
+}
+
+fn static_wards_generic(role: &str, team_side: &str) -> Vec<crate::db::coach_service::WardPoint> {
+    use crate::db::coach_service::WardPoint;
+    let coords: Vec<(i64, i64)> = match role {
+        "TOP" => {
+            if team_side == "blue" {
+                vec![(2600, 12500), (3800, 11200)] // rio/tri-bush topo lado azul
+            } else {
+                vec![(12400, 2500), (11200, 3800)] // espelhado lado vermelho
+            }
+        }
+        "JUNGLE" => {
+            if team_side == "blue" {
+                vec![(7500, 11400), (9200, 5800)] // visão rio top + bot
+            } else {
+                vec![(7500, 3600), (5800, 9200)]
+            }
+        }
+        "MID" => vec![(6900, 9200), (8800, 6000)], // rios laterais mid-lane
+        "ADC" => {
+            if team_side == "blue" {
+                vec![(9200, 5800), (10200, 4500)] // arbusto bot-lane + entrada dragão
+            } else {
+                vec![(5800, 9200), (4800, 10500)]
+            }
+        }
+        "SUPPORT" => {
+            if team_side == "blue" {
+                vec![(9200, 5800), (10200, 4200)] // visão dragon área (suporte carrega visão)
+            } else {
+                vec![(5800, 9200), (4800, 10800)]
+            }
+        }
+        _ => vec![(7500, 9000), (8500, 6000)], // mid genérico
+    };
+    coords.into_iter().enumerate()
+        .map(|(i, (x, y))| WardPoint { x, y, priority: i as i32 + 1 })
+        .collect()
+}
+
 pub(super) async fn handle_in_game_coaching(
     handle: &tauri::AppHandle,
     lca_data: &serde_json::Value,
@@ -573,18 +637,29 @@ pub(super) async fn handle_in_game_coaching(
             };
 
             for obj in &objectives {
-                if obj.spawn == f64::MAX || db_key.is_empty() { continue; }
+                if obj.spawn == f64::MAX { continue; }
                 let secs_left = obj.spawn - game_time;
-                if secs_left > 40.0 || secs_left < 0.0 { continue; }
+                // Janela ampliada para 60s — dá tempo de caminhar até o ponto de ward
+                if secs_left > 60.0 || secs_left < 0.0 { continue; }
 
                 let alert_key = format!("{}:{:.0}", obj.key, obj.spawn);
                 if coach_state.objective_ward_alerts.contains(&alert_key) { continue; }
                 coach_state.objective_ward_alerts.insert(alert_key);
 
-                let wards = db::coach_service::get_ward_suggestions_for_objective(
-                    pool, db_key, role_for_runes,
-                    obj.spawn, obj.x_min, obj.x_max, obj.y_min, obj.y_max,
-                ).await;
+                // Tenta dados do DB; fallback para posições estáticas se não houver dados
+                let wards = if !db_key.is_empty() {
+                    let db_wards = db::coach_service::get_ward_suggestions_for_objective(
+                        pool, db_key, role_for_runes,
+                        obj.spawn, obj.x_min, obj.x_max, obj.y_min, obj.y_max,
+                    ).await;
+                    if db_wards.is_empty() {
+                        static_wards_for_objective(obj.key)
+                    } else {
+                        db_wards
+                    }
+                } else {
+                    static_wards_for_objective(obj.key)
+                };
 
                 if !wards.is_empty() {
                     coach_state.last_ward_map_time = game_time;
@@ -606,17 +681,29 @@ pub(super) async fn handle_in_game_coaching(
 
             // ── 3. Ward map genérico a cada 2 minutos — não sobrepõe tip imediata ──
             // Só bloqueia se uma tip disparou nos últimos 5s (não 30s, que travava sempre).
+            // db_key vazio NÃO bloqueia mais — usa fallback estático por role.
             let ward_cooldown = 120.0;
             let tip_recently = (game_time - *last_tip_emit_time) < 5.0;
             let ward_due = game_time >= 120.0
                 && (game_time - coach_state.last_ward_map_time) >= ward_cooldown
-                && !db_key.is_empty()
                 && !tip_recently;
 
             if ward_due {
-                let wards = db::coach_service::get_ward_suggestions(
-                    pool, db_key, role_for_runes, game_time
-                ).await;
+                // Tenta DB primeiro; fallback estático por role se vazio
+                let wards = if !db_key.is_empty() {
+                    let db_wards = db::coach_service::get_ward_suggestions(
+                        pool, db_key, role_for_runes, game_time
+                    ).await;
+                    if db_wards.is_empty() {
+                        println!("[WardMap] DB vazio para {}/{} — usando fallback estático", db_key, role_for_runes);
+                        static_wards_generic(role_for_runes, my_team_side)
+                    } else {
+                        db_wards
+                    }
+                } else {
+                    println!("[WardMap] db_key vazio — usando fallback estático para role={} side={}", role_for_runes, my_team_side);
+                    static_wards_generic(role_for_runes, my_team_side)
+                };
 
                 if !wards.is_empty() {
                     coach_state.last_ward_map_time = game_time;

@@ -842,34 +842,58 @@ export function useSpellCoach() {
       backText: customizedBackText
     });
 
-    // Reproduz áudio do coach e exibe o widget
-    await toggleFlashcard(true, true);
-
+    // ── Verifica se voz está disponível ────────────────────────────────────
+    // voiceActive=true  → card aparece junto com o speak; fecha quando o áudio terminar.
+    // voiceActive=false → card aparece imediatamente; fecha por timer (comportamento padrão).
+    const voiceActive = voiceEnabled.value && kokoroStatus.value === 'ready';
     const dismiss = nextTip.dismiss;
 
-    if (dismiss && dismiss.type !== 'fallback') {
-      // Dica com condição de dados: voz inicia mas não bloqueia — fecha quando situação mudar.
-      // Para 'fixed': fecha apenas quando o próximo jungle clear step substituir esta dica.
-      speak(customizedBackText);
-      await waitForDismissSignal();
-      stopVoice();
-    } else if (dismiss?.type === 'fallback') {
-      // Fallback com tempo máximo: voz roda + timeout de segurança em paralelo.
-      const maxMs = dismiss.max_ms ?? 30000;
-      const fallbackTimer = setTimeout(() => triggerDismiss(), maxMs);
-      speak(customizedBackText);
-      await waitForDismissSignal();
-      clearTimeout(fallbackTimer);
-      stopVoice();
+    if (voiceActive) {
+      // ── MODO VOZ ATIVA ────────────────────────────────────────────────────
+      // speak() invoca o Rust de forma bloqueante — a Promise só resolve quando o
+      // áudio termina completamente. Abrimos o card em paralelo ao início do speak.
+      await toggleFlashcard(true, true);
+
+      if (dismiss && dismiss.type !== 'fallback') {
+        // Condição de dados (jungle clear, level-up, etc.):
+        // O áudio roda uma vez; o card permanece visível até a condição ser atingida.
+        await speak(customizedBackText);       // aguarda o áudio terminar
+        await waitForDismissSignal();          // aguarda condição de jogo
+        stopVoice();
+      } else if (dismiss?.type === 'fallback') {
+        // Fallback: fecha quando o áudio terminar; timer de segurança como backup.
+        const maxMs = dismiss.max_ms ?? 30000;
+        const safetyTimer = setTimeout(() => triggerDismiss(), maxMs);
+        await Promise.race([
+          speak(customizedBackText),           // fecha ao terminar o áudio
+          new Promise<void>(r => setTimeout(r, maxMs))  // ou no timeout máximo
+        ]);
+        clearTimeout(safetyTimer);
+        triggerDismiss(); // resolve qualquer waitForDismissSignal pendente
+        stopVoice();
+      } else {
+        // Sem condição de dismiss: fecha quando o áudio terminar, mínimo 3s de exibição.
+        const minDisplay = new Promise<void>(r => setTimeout(r, 3000));
+        await Promise.all([speak(customizedBackText), minDisplay]);
+        stopVoice();
+      }
     } else {
-      // Sem condição de dismiss: mínimo 3s de exibição, máximo 12s com voz, 7s sem voz.
-      const minDisplay = new Promise<void>(r => setTimeout(r, 3000));
-      const maxMs = (voiceEnabled.value && kokoroStatus.value === 'ready') ? 12000 : 7000;
-      await Promise.all([
-        Promise.race([speak(customizedBackText), new Promise<void>(r => setTimeout(r, maxMs))]),
-        minDisplay,
-      ]);
-      stopVoice();
+      // ── MODO SEM VOZ: card aparece imediatamente, fecha por timer ─────────
+      await toggleFlashcard(true, true);
+
+      if (dismiss && dismiss.type !== 'fallback') {
+        // Condição de dados sem voz — aguarda dismiss signal normalmente
+        await waitForDismissSignal();
+      } else if (dismiss?.type === 'fallback') {
+        // Fallback sem voz: usa timer mais curto (7s) — sem áudio para calibrar duração
+        const maxMs = Math.min(dismiss.max_ms ?? 30000, 7000);
+        const fallbackTimer = setTimeout(() => triggerDismiss(), maxMs);
+        await waitForDismissSignal();
+        clearTimeout(fallbackTimer);
+      } else {
+        // Sem dismiss: exibe por 7s
+        await new Promise<void>(r => setTimeout(r, 7000));
+      }
     }
 
     // Verifica se fomos supersedidos por uma emergência ou substituição de jungle clear.

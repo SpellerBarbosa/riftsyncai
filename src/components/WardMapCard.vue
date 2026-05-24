@@ -68,24 +68,74 @@ const topWards = computed(() => {
   const limit = props.role?.toUpperCase() === 'SUPPORT' ? 6 : 2;
   return props.wards.slice(0, limit);
 });
+
+// ── Urgência ──────────────────────────────────────────────────────────────
+// secondsToSpawn: 60→0 (janela de alerta). Urgência cresce conforme aproxima.
+const urgencyPct = computed(() => {
+  if (props.secondsToSpawn == null) return 0;
+  const s = Math.max(0, Math.min(60, props.secondsToSpawn));
+  return Math.round(((60 - s) / 60) * 100); // 0% em 60s → 100% em 0s
+});
+
+const urgencyColor = computed(() => {
+  const pct = urgencyPct.value;
+  if (pct >= 80) return "#ff4e4e";
+  if (pct >= 50) return "#f0a84a";
+  return "#4af0a0";
+});
+
+const spawningSoon = computed(() => (props.secondsToSpawn ?? 99) <= 10);
+
+// Descrição da posição de ward por índice (posições clássicas do LoL)
+function wardDesc(index: number, objective: string | undefined): string {
+  if (objective) {
+    const descs: Record<string, string[]> = {
+      "Dragão":     ["Arbusto entrada azul", "Rio sul / entrada vermelha"],
+      "Barão":      ["Tri-bush entrada azul", "Rio lateral do Barão"],
+      "Arauto":     ["Tri-bush entrada azul", "Rio lateral do Arauto"],
+      "Aronguejo":  ["Arbusto rio bot",       "Arbusto rio top"],
+    };
+    return (descs[objective] ?? [])[index] ?? `Ponto ${index + 1}`;
+  }
+  // Ward genérico — rótulos por prioridade
+  return index === 0 ? "★ Prioridade máxima" : index <= 1 ? "▲ Visão crítica" : "● Situacional";
+}
 </script>
 
 <template>
-  <div class="ward-card">
+  <div class="ward-card" :class="{ 'is-urgent': spawningSoon }">
 
     <!-- Cabeçalho -->
     <div class="ward-header" :class="{ 'is-objective': !!objective }">
       <span class="ward-title">
         <template v-if="objective">
-          {{ objectiveEmoji }} <strong>{{ objective }}</strong> em {{ secondsToSpawn }}s — Visão
+          {{ objectiveEmoji }} <strong>{{ objective }}</strong>
         </template>
         <template v-else>
-          👁️ Wards · {{ roleLabel }}
+          👁️ Visão · {{ roleLabel }}
         </template>
       </span>
       <div class="ward-header-right">
         <span class="ward-time">{{ minuteStr }}</span>
         <button class="ward-close-btn" @click="hideWindow" title="Fechar">×</button>
+      </div>
+    </div>
+
+    <!-- Pill de countdown (só quando objetivo) -->
+    <div v-if="objective && secondsToSpawn != null" class="countdown-row">
+      <div class="countdown-pill" :style="{ borderColor: urgencyColor }">
+        <span class="countdown-icon">⏱</span>
+        <span class="countdown-label" :style="{ color: urgencyColor }">
+          <template v-if="spawningSoon">⚡ Aparecendo agora!</template>
+          <template v-else>{{ secondsToSpawn }}s para spawn — Coloque visão!</template>
+        </span>
+      </div>
+      <!-- Barra de urgência -->
+      <div class="urgency-track">
+        <div
+          class="urgency-bar"
+          :style="{ width: urgencyPct + '%', background: urgencyColor }"
+        />
       </div>
     </div>
 
@@ -121,6 +171,13 @@ const topWards = computed(() => {
             class="obj-pulse obj-pulse--slow"
             opacity="0.4"
           />
+          <!-- Emoji do objetivo no centro do pit -->
+          <text
+            :x="toMap(objectiveGamePos.x, 'x')"
+            :y="toMap(objectiveGamePos.y, 'y') + 4"
+            text-anchor="middle"
+            font-size="10"
+          >{{ objectiveEmoji }}</text>
         </g>
 
         <!-- Ward markers -->
@@ -169,7 +226,7 @@ const topWards = computed(() => {
           {{ i + 1 }}
         </span>
         <span class="legend-desc">
-          {{ i === 0 ? '★ Prioridade máxima' : i <= 2 ? '▲ Importante' : '● Situacional' }}
+          {{ wardDesc(i, objective) }}
         </span>
       </div>
     </div>
@@ -186,6 +243,11 @@ const topWards = computed(() => {
   padding: 6px;
   font-family: monospace;
   user-select: none;
+  transition: border-color 0.3s;
+}
+.ward-card.is-urgent {
+  border-color: rgba(255, 78, 78, 0.8);
+  box-shadow: 0 0 10px rgba(255, 78, 78, 0.3);
 }
 
 /* Header */
@@ -211,6 +273,39 @@ const topWards = computed(() => {
   transition: color 0.15s;
 }
 .ward-close-btn:hover { color: #ff4e4e; }
+
+/* Countdown pill */
+.countdown-row {
+  margin-bottom: 5px;
+}
+.countdown-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid;
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-bottom: 3px;
+  transition: border-color 0.3s;
+}
+.countdown-icon { font-size: 9px; }
+.countdown-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  transition: color 0.3s;
+}
+.urgency-track {
+  height: 3px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.urgency-bar {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 1s linear, background 0.3s;
+}
 
 /* Mapa */
 .map-container {
@@ -240,16 +335,15 @@ const topWards = computed(() => {
 /* Legenda */
 .ward-legend {
   display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 3px 6px;
+  flex-direction: column;
+  gap: 3px;
   margin-top: 5px;
   padding: 0 2px;
 }
 .legend-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
 }
 .legend-num {
   width: 14px;
@@ -265,7 +359,7 @@ const topWards = computed(() => {
 }
 .legend-desc {
   font-size: 8px;
-  color: #a09b8c;
+  color: #c8aa6e;
 }
 .no-wards {
   font-size: 9px;
