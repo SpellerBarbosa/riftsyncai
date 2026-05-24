@@ -3,7 +3,7 @@ import { ref, onMounted } from "vue";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
-import { useVoiceCoach } from "../composables/useVoiceCoach";
+import { useVoiceCoach, VOICE_OPTIONS } from "../composables/useVoiceCoach";
 
 import { computed } from "vue";
 
@@ -27,11 +27,6 @@ const voiceRate = computed({
 const selectedVoice = computed({
   get: () => voiceCoach.selectedVoice.value,
   set: (val) => { voiceCoach.selectedVoice.value = val; }
-});
-
-const voiceWeights = computed({
-  get: () => voiceCoach.voiceWeights.value,
-  set: (val) => { voiceCoach.voiceWeights.value = val; }
 });
 
 const testVoice = voiceCoach.testVoice;
@@ -177,152 +172,75 @@ onMounted(() => {
             </label>
           </div>
 
-          <!-- COLLAPSIBLE VOICE CONFIG SECTION -->
           <div v-if="voiceEnabled" class="ia-collapsible animate-fade">
-            <!-- STATUS DO KOKORO LOCAL TTS -->
-            <div v-if="voiceCoach.kokoroStatus.value === 'loading'" class="kokoro-loading-box animate-fade">
-              <div class="kokoro-progress-text">
-                🤖 <strong>Carregando Voz Local Kokoro:</strong> Inicializando ou baixando modelos off-line pela primeira vez (~337MB)...
-              </div>
-              <div class="kokoro-progress-bar-container">
-                <div class="kokoro-progress-bar" style="width: 100%; animation: pulse 2s infinite ease-in-out;"></div>
+
+            <!-- STATUS DA API -->
+            <div
+              class="kokoro-loading-box animate-fade"
+              :style="voiceCoach.kokoroStatus.value === 'ready'
+                ? 'border-color: rgba(78,255,155,0.4); background: rgba(78,255,155,0.03);'
+                : ''"
+            >
+              <div
+                class="kokoro-progress-text"
+                :style="voiceCoach.kokoroStatus.value === 'ready' ? 'color:#4eff9b;' : ''"
+              >
+                <template v-if="voiceCoach.kokoroStatus.value === 'loading'">
+                  🤖 <strong>API de Voz:</strong> Conectando...
+                </template>
+                <template v-else-if="voiceCoach.kokoroStatus.value.startsWith('error')">
+                  ⚠️ <strong>Erro na API de voz:</strong> {{ voiceCoach.kokoroStatus.value }}
+                </template>
+                <template v-else>
+                  ⚡ <strong>API de Voz:</strong> Pronta!
+                  <span v-if="audioDeviceStatus && audioDeviceStatus !== 'ok'" style="margin-left:8px; font-size:10px; color:#ff9f43;">
+                    ⚠️ Áudio: {{ audioDeviceStatus }}
+                  </span>
+                </template>
               </div>
             </div>
 
-            <div v-else-if="voiceCoach.kokoroStatus.value.startsWith('error')" class="kokoro-error-box animate-fade">
-              <span class="warning-text">⚠️ Erro ao carregar motor local:</span>
-              <p style="font-size: 10px; color: #ff4e4e; margin: 4px 0 0 0;">{{ voiceCoach.kokoroStatus.value }}</p>
-            </div>
-
-            <div v-else class="kokoro-loading-box animate-fade" style="border-color: rgba(78, 255, 155, 0.4); background: rgba(78, 255, 155, 0.03);">
-              <div class="kokoro-progress-text" style="color: #4eff9b;">
-                ⚡ <strong>Kokoro Local ONNX:</strong> Motor de voz off-line 100% pronto e ativo!
-              </div>
-              <div v-if="audioDeviceStatus && audioDeviceStatus !== 'ok'" style="margin-top: 4px; font-size: 10px; color: #ff9f43;">
-                ⚠️ Dispositivo de áudio: {{ audioDeviceStatus }}
-              </div>
-            </div>
-
+            <!-- SELEÇÃO DE VOZ -->
             <div class="form-group">
-              <label class="form-label">Selecione a Voz do Coach (Kokoro Local Neural) 🌟</label>
-              <select v-model="selectedVoice" @change="saveVoiceSettings" class="form-select" :disabled="voiceCoach.kokoroStatus.value !== 'ready'">
-                <option value="francisca">Francisca (Voz Feminina Dora) ✨</option>
-                <option value="antonio">Antônio (Voz Masculina Alex) ✨</option>
-                <option value="custom">Mistura Personalizada (Dora + Alex) 🎛️</option>
+              <label class="form-label">Voz do Coach</label>
+              <select v-model="selectedVoice" @change="saveVoiceSettings" class="form-select">
+                <option v-for="opt in VOICE_OPTIONS" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
               </select>
-              <span class="help-text">
-                Vozes neurais brasileiras de alta fidelidade geradas e reproduzidas de forma off-line e super veloz diretamente no seu PC.
-              </span>
+              <span class="help-text">Vozes neurais geradas via API — qualidade igual ao Kokoro local.</span>
             </div>
 
-            <!-- PAINEL DE MISTURA MULTI-VOZ PERSONALIZADA -->
-            <div v-if="selectedVoice === 'custom'" class="form-group animate-fade">
-              <label class="form-label" style="margin-bottom: 8px;">Mesa de Mistura Híbrida (Equalizador de Vozes) 🎛️</label>
-              
-              <div class="voice-mixer-grid">
-                <!-- 🇧🇷 Francisca -->
-                <div class="mixer-channel">
-                  <div class="mixer-channel-header">
-                    <span class="mixer-channel-title">🇧🇷 Francisca (Fem. BR)</span>
-                    <span class="mixer-channel-val">{{ voiceWeights.pf_dora }}</span>
-                  </div>
-                  <input type="range" min="0" max="10" step="1" v-model.number="voiceWeights.pf_dora" @input="saveVoiceSettings" class="form-range" :disabled="voiceCoach.kokoroStatus.value !== 'ready'" />
-                </div>
-
-                <!-- 🇧🇷 Antônio -->
-                <div class="mixer-channel">
-                  <div class="mixer-channel-header">
-                    <span class="mixer-channel-title">🇧🇷 Antônio (Masc. BR)</span>
-                    <span class="mixer-channel-val">{{ voiceWeights.pm_alex }}</span>
-                  </div>
-                  <input type="range" min="0" max="10" step="1" v-model.number="voiceWeights.pm_alex" @input="saveVoiceSettings" class="form-range" :disabled="voiceCoach.kokoroStatus.value !== 'ready'" />
-                </div>
-
-                <!-- 🇺🇸 Sky -->
-                <div class="mixer-channel">
-                  <div class="mixer-channel-header">
-                    <span class="mixer-channel-title">🇺🇸 Sky (Fem. USA)</span>
-                    <span class="mixer-channel-val">{{ voiceWeights.af_sky }}</span>
-                  </div>
-                  <input type="range" min="0" max="10" step="1" v-model.number="voiceWeights.af_sky" @input="saveVoiceSettings" class="form-range" :disabled="voiceCoach.kokoroStatus.value !== 'ready'" />
-                </div>
-
-                <!-- 🇺🇸 Adam -->
-                <div class="mixer-channel">
-                  <div class="mixer-channel-header">
-                    <span class="mixer-channel-title">🇺🇸 Adam (Masc. USA)</span>
-                    <span class="mixer-channel-val">{{ voiceWeights.am_adam }}</span>
-                  </div>
-                  <input type="range" min="0" max="10" step="1" v-model.number="voiceWeights.am_adam" @input="saveVoiceSettings" class="form-range" :disabled="voiceCoach.kokoroStatus.value !== 'ready'" />
-                </div>
-
-                <!-- 🇪🇸 Dora -->
-                <div class="mixer-channel">
-                  <div class="mixer-channel-header">
-                    <span class="mixer-channel-title">🇪🇸 Dora (Fem. ESP)</span>
-                    <span class="mixer-channel-val">{{ voiceWeights.ef_dora }}</span>
-                  </div>
-                  <input type="range" min="0" max="10" step="1" v-model.number="voiceWeights.ef_dora" @input="saveVoiceSettings" class="form-range" :disabled="voiceCoach.kokoroStatus.value !== 'ready'" />
-                </div>
-
-                <!-- 🇪🇸 Alex -->
-                <div class="mixer-channel">
-                  <div class="mixer-channel-header">
-                    <span class="mixer-channel-title">🇪🇸 Alex (Masc. ESP)</span>
-                    <span class="mixer-channel-val">{{ voiceWeights.em_alex }}</span>
-                  </div>
-                  <input type="range" min="0" max="10" step="1" v-model.number="voiceWeights.em_alex" @input="saveVoiceSettings" class="form-range" :disabled="voiceCoach.kokoroStatus.value !== 'ready'" />
-                </div>
-              </div>
-
-              <span class="help-text" style="margin-top: 8px;">
-                Dica: Ajuste os controles de 0 a 10. O sistema normalizará as proporções automaticamente para criar uma voz híbrida única. Se deixar apenas uma voz ativa, ela falará pura.
-              </span>
-            </div>
-
+            <!-- VOLUME -->
             <div class="form-group">
               <div class="slider-label-row">
                 <label class="form-label">Volume ({{ Math.round(voiceVolume * 100) }}%)</label>
               </div>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                v-model.number="voiceVolume"
-                @input="saveVoiceSettings"
-                class="form-range"
-                :disabled="voiceCoach.kokoroStatus.value !== 'ready'"
-              />
+              <input type="range" min="0" max="1" step="0.05"
+                v-model.number="voiceVolume" @input="saveVoiceSettings" class="form-range" />
             </div>
 
+            <!-- VELOCIDADE -->
             <div class="form-group">
               <div class="slider-label-row">
                 <label class="form-label">Velocidade da Fala ({{ voiceRate.toFixed(1) }}x)</label>
               </div>
-              <input
-                type="range"
-                min="0.5"
-                max="2.0"
-                step="0.1"
-                v-model.number="voiceRate"
-                @input="saveVoiceSettings"
-                class="form-range"
-                :disabled="voiceCoach.kokoroStatus.value !== 'ready'"
-              />
+              <input type="range" min="0.5" max="2.0" step="0.1"
+                v-model.number="voiceRate" @input="saveVoiceSettings" class="form-range" />
             </div>
 
+            <!-- BOTÕES DE TESTE -->
             <div class="test-row">
-              <button class="btn-secondary" @click="testVoice" :disabled="voiceCoach.kokoroStatus.value !== 'ready'">
-                🔊 Testar Voz do Coach
+              <button class="btn-secondary" @click="testVoice" :disabled="voiceCoach.isTesting.value">
+                {{ voiceCoach.isTesting.value ? "⏳ Sintetizando..." : "🔊 Testar Voz" }}
               </button>
-              <div v-if="voiceCoach.lastVoiceError.value" style="margin-top: 6px; font-size: 10px; color: #ff4e4e; background: rgba(255,78,78,0.08); border: 1px solid rgba(255,78,78,0.3); padding: 6px 8px; border-radius: 4px; word-break: break-all;">
-                ❌ Erro de voz: {{ voiceCoach.lastVoiceError.value }}
+              <div v-if="voiceCoach.lastVoiceError.value" style="margin-top:6px; font-size:10px; color:#ff4e4e; background:rgba(255,78,78,0.08); border:1px solid rgba(255,78,78,0.3); padding:6px 8px; border-radius:4px; word-break:break-all;">
+                ❌ {{ voiceCoach.lastVoiceError.value }}
               </div>
-              <button class="btn-secondary" @click="testAudioDevice" :disabled="audioTestLoading" style="margin-top: 6px; opacity: 0.8;">
+              <button class="btn-secondary" @click="testAudioDevice" :disabled="audioTestLoading" style="margin-top:6px; opacity:0.8;">
                 🔧 Diagnosticar Saída de Áudio
               </button>
-              <div v-if="audioTestResult" style="margin-top: 6px; font-size: 10px; padding: 6px 8px; border-radius: 6px; background: rgba(255,255,255,0.05); word-break: break-word;">
+              <div v-if="audioTestResult" style="margin-top:6px; font-size:10px; padding:6px 8px; border-radius:6px; background:rgba(255,255,255,0.05); word-break:break-word;">
                 {{ audioTestResult }}
               </div>
             </div>
