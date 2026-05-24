@@ -124,10 +124,25 @@ impl VoicePlayer {
     }
 }
 
-/// API remota de TTS — sempre pronta (sem modelo local para carregar).
+/// Verifica se a API remota de TTS está disponível e com modelo carregado.
 #[tauri::command]
 pub(crate) async fn get_kokoro_status(_app: tauri::AppHandle) -> Result<String, String> {
-    Ok("ready".to_string())
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Erro ao criar cliente HTTP: {}", e))?;
+
+    match client.get("https://spell2014-riftsyncai.hf.space/health").send().await {
+        Ok(resp) if resp.status().is_success() => {
+            match resp.json::<serde_json::Value>().await {
+                Ok(body) if body["status"] == "ok" && body["model_loaded"] == true => Ok("ready".to_string()),
+                Ok(body) => Err(format!("API indisponível: {:?}", body)),
+                Err(e) => Err(format!("Resposta inválida do health check: {}", e)),
+            }
+        }
+        Ok(resp) => Err(format!("Health check retornou HTTP {}", resp.status())),
+        Err(e) => Err(format!("Falha ao conectar na API de voz: {}", e)),
+    }
 }
 
 async fn cleanup_voice_cache(db: &sqlx::Pool<sqlx::Sqlite>, max_files: i64) {
@@ -216,7 +231,7 @@ pub(crate) async fn play_voice(
         .map_err(|e| format!("Erro ao criar cliente HTTP: {}", e))?;
 
     let response = client
-        .post("https://spell-tts-api.onrender.com/tts")
+        .post("https://spell2014-riftsyncai.hf.space/tts")
         .json(&serde_json::json!({
             "text": text,
             "voice": api_voice,

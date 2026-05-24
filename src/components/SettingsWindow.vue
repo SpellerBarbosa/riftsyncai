@@ -3,11 +3,17 @@ import { ref, onMounted } from "vue";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { useVoiceCoach, VOICE_OPTIONS } from "../composables/useVoiceCoach";
 
 import { computed } from "vue";
 
 const voiceCoach = useVoiceCoach();
+
+const appVersion = ref("...");
+onMounted(async () => {
+  try { appVersion.value = await getVersion(); } catch { appVersion.value = "0.2.20"; }
+});
 
 const voiceEnabled = computed({
   get: () => voiceCoach.voiceEnabled.value,
@@ -340,7 +346,7 @@ onMounted(() => {
         <div class="info-card">
           <div class="info-row">
             <span>Versão</span>
-            <span class="val">0.1.0 Beta (Nuvem Opcional)</span>
+            <span class="val">{{ appVersion }}</span>
           </div>
           <div class="info-row">
             <span>Desenvolvedor</span>
