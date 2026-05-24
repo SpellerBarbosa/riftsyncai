@@ -14,7 +14,7 @@ mod window;
 
 use tauri::{Emitter, Manager};
 
-pub use voice::{KokoroState, VoicePlayer, PlaySource};
+pub use voice::{VoicePlayer, PlaySource};
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -123,87 +123,6 @@ pub fn run() {
                 }
             });
 
-            // Register KokoroState and launch background downloader/loader
-            let kokoro_status = std::sync::Arc::new(std::sync::Mutex::new("loading".to_string()));
-            let kokoro_status_clone = kokoro_status.clone();
-            app.manage(voice::KokoroState {
-                engine: std::sync::Arc::new(std::sync::Mutex::new(None::<kokoro_micro::TtsEngine>)),
-                status: kokoro_status,
-            });
-
-            // Aponta o eSpeak-ng para os dados bundled no instalador.
-            // PER_ESPEAKNG_DATA_DIRECTORY deve ser o diretório PAI que contém espeak-ng-data/.
-            // Só seta se espeak-ng-data realmente existe lá — evita quebrar o modo dev.
-            if let Ok(resource_dir) = handle.path().resource_dir() {
-                // Tenta resource_dir diretamente, depois resource_dir/resources como fallback
-                let candidates = [
-                    resource_dir.clone(),
-                    resource_dir.join("resources"),
-                ];
-                let mut found = false;
-                for candidate in &candidates {
-                    if candidate.join("espeak-ng-data").exists() {
-                        let parent = candidate.to_string_lossy().to_string();
-                        unsafe { std::env::set_var("PER_ESPEAKNG_DATA_DIRECTORY", &parent); }
-                        println!("[eSpeak] PER_ESPEAKNG_DATA_DIRECTORY={}", parent);
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    println!("[eSpeak] espeak-ng-data não encontrado em resource_dir — usando detecção automática do eSpeak");
-                }
-            } else {
-                eprintln!("[eSpeak] AVISO: não foi possível obter resource_dir");
-            }
-
-            // Garante que o ONNX Runtime use todos os cores disponíveis via OpenMP.
-            // Deve ser definido ANTES de qualquer Session ser criada.
-            let cpu_count = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
-            unsafe {
-                std::env::set_var("OMP_NUM_THREADS", cpu_count.to_string());
-            }
-            println!("[Kokoro] OMP_NUM_THREADS={} (cores disponíveis)", cpu_count);
-
-            let handle_for_kokoro = handle.clone();
-            tauri::async_runtime::spawn(async move {
-                println!("[Kokoro] Inicializando o motor de voz local Kokoro (isto pode baixar o modelo de 300MB+ se for a primeira vez)...");
-                match kokoro_micro::TtsEngine::new().await {
-                    Ok(mut engine) => {
-                        println!("[Kokoro] Motor de voz Kokoro carregado com sucesso! Realizando aquecimento (warm-up)...");
-                        let start_warmup = std::time::Instant::now();
-                        // Warm-up com frase representativa de tips reais: inclui números, % e travessão
-                        // para forçar o eSpeak e o ONNX a JIT-compilar os paths usados no coaching.
-                        // "a" sozinho não aquece eSpeak para tokens numéricos/especiais em pt-br.
-                        let warmup_phrases = [
-                            "Bana Amumu — dominante neste ELO.",
-                            "Bana Ekko ou Amumu, 66 por cento de vitória.",
-                        ];
-                        for phrase in &warmup_phrases {
-                            if let Err(e) = engine.synthesize_with_options(phrase, Some("pf_dora"), 1.0, 0.0, Some("pt")) {
-                                eprintln!("[Kokoro] Erro no warm-up '{}': {}", phrase, e);
-                            }
-                        }
-                        println!("[Kokoro] Aquecimento concluído em {:?}!", start_warmup.elapsed());
-
-                        if let Some(state) = handle_for_kokoro.try_state::<voice::KokoroState>() {
-                            if let Ok(mut lock) = state.engine.lock() {
-                                *lock = Some(engine);
-                            }
-                        }
-                        if let Ok(mut status_lock) = kokoro_status_clone.lock() {
-                            *status_lock = "ready".to_string();
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("[Kokoro] Falha crítica ao inicializar o Kokoro: {}", e);
-                        if let Ok(mut status_lock) = kokoro_status_clone.lock() {
-                            *status_lock = format!("error: {}", e);
-                        }
-                    }
-                }
-            });
-
             // Initialize and register native VoicePlayer state
             let player = voice::VoicePlayer::new();
             app.manage(player);
@@ -262,6 +181,29 @@ pub fn run() {
                     }
                     Ok(None)   => println!("[Updater] App está na versão mais recente."),
                     Err(e)     => println!("[Updater] Erro ao verificar updates: {e}"),
+                }
+            });
+
+            // Aquece o servidor TTS no Render para eliminar cold start na primeira dica
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                println!("[TTS Warmup] Acordando servidor spell-tts-api...");
+                match reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(90))
+                    .build()
+                {
+                    Ok(client) => {
+                        let res = client
+                            .post("https://spell-tts-api.onrender.com/tts")
+                            .json(&serde_json::json!({"text": "ok", "voice": "pf_dora", "speed": 1.0}))
+                            .send()
+                            .await;
+                        match res {
+                            Ok(_)  => println!("[TTS Warmup] Servidor aquecido com sucesso."),
+                            Err(e) => println!("[TTS Warmup] Falha ao aquecer servidor: {}", e),
+                        }
+                    }
+                    Err(e) => println!("[TTS Warmup] Erro ao criar cliente HTTP: {}", e),
                 }
             });
 
