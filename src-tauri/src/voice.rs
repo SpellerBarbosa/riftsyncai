@@ -230,13 +230,20 @@ pub(crate) async fn play_voice(
         .build()
         .map_err(|e| format!("Erro ao criar cliente HTTP: {}", e))?;
 
+    let lang = if api_voice.starts_with('p') { "pt-br" } else { "" };
+
+    let mut payload = serde_json::json!({
+        "text": text,
+        "voice": api_voice,
+        "speed": speed
+    });
+    if !lang.is_empty() {
+        payload["lang"] = serde_json::json!(lang);
+    }
+
     let response = client
         .post("https://spell2014-riftsyncai.hf.space/tts")
-        .json(&serde_json::json!({
-            "text": text,
-            "voice": api_voice,
-            "speed": speed
-        }))
+        .json(&payload)
         .send()
         .await
         .map_err(|e| format!("Erro na chamada à API de voz: {}", e))?;
