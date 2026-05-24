@@ -132,14 +132,29 @@ pub fn run() {
             });
 
             // Aponta o eSpeak-ng para os dados bundled no instalador.
-            // Sem isso o build de distribuição falha com "Failed to initialize eSpeak-ng".
             // PER_ESPEAKNG_DATA_DIRECTORY deve ser o diretório PAI que contém espeak-ng-data/.
+            // Só seta se espeak-ng-data realmente existe lá — evita quebrar o modo dev.
             if let Ok(resource_dir) = handle.path().resource_dir() {
-                let espeak_parent = resource_dir.to_string_lossy().to_string();
-                unsafe { std::env::set_var("PER_ESPEAKNG_DATA_DIRECTORY", &espeak_parent); }
-                println!("[eSpeak] PER_ESPEAKNG_DATA_DIRECTORY={}", espeak_parent);
+                // Tenta resource_dir diretamente, depois resource_dir/resources como fallback
+                let candidates = [
+                    resource_dir.clone(),
+                    resource_dir.join("resources"),
+                ];
+                let mut found = false;
+                for candidate in &candidates {
+                    if candidate.join("espeak-ng-data").exists() {
+                        let parent = candidate.to_string_lossy().to_string();
+                        unsafe { std::env::set_var("PER_ESPEAKNG_DATA_DIRECTORY", &parent); }
+                        println!("[eSpeak] PER_ESPEAKNG_DATA_DIRECTORY={}", parent);
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    println!("[eSpeak] espeak-ng-data não encontrado em resource_dir — usando detecção automática do eSpeak");
+                }
             } else {
-                eprintln!("[eSpeak] AVISO: não foi possível obter resource_dir para configurar PER_ESPEAKNG_DATA_DIRECTORY");
+                eprintln!("[eSpeak] AVISO: não foi possível obter resource_dir");
             }
 
             // Garante que o ONNX Runtime use todos os cores disponíveis via OpenMP.
@@ -165,7 +180,7 @@ pub fn run() {
                             "Bana Ekko ou Amumu, 66 por cento de vitória.",
                         ];
                         for phrase in &warmup_phrases {
-                            if let Err(e) = engine.synthesize_with_options(phrase, Some("pf_dora"), 1.0, 0.0, Some("pt-br")) {
+                            if let Err(e) = engine.synthesize_with_options(phrase, Some("pf_dora"), 1.0, 0.0, Some("pt")) {
                                 eprintln!("[Kokoro] Erro no warm-up '{}': {}", phrase, e);
                             }
                         }

@@ -326,7 +326,7 @@ pub(crate) async fn play_voice(
             .map_err(|_| "Engine mutex envenenado (poison)".to_string())?;
         let engine = lock.as_mut()
             .ok_or_else(|| "Motor de voz não está pronto (engine=None após status=ready)".to_string())?;
-        engine.synthesize_with_options(&text_for_synth, Some(&voice_str), speed_val, 1.0, Some("pt-br"))
+        engine.synthesize_with_options(&text_for_synth, Some(&voice_str), speed_val, 1.0, Some("pt"))
             .map_err(|e| format!("Erro na síntese Kokoro: {}", e))
     }).await.map_err(|e| format!("Erro interno no thread de síntese: {}", e))??;
 
