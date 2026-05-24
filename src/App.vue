@@ -25,6 +25,7 @@ import RuneOverlay from "./components/RuneOverlay.vue";
 import WardMapCard from "./components/WardMapCard.vue";
 import PostGameOverlay from "./components/PostGameOverlay.vue";
 import PreGameOverlay from "./components/PreGameOverlay.vue";
+import UpdaterWindow from "./components/UpdaterWindow.vue";
 
 // 2. IMPORTAÇÃO DA LÓGICA DE NEGÓCIO MODULARIZADA (Composable)
 import { useSpellCoach } from "./composables/useSpellCoach";
@@ -137,6 +138,9 @@ const {
   <div v-else-if="windowLabel === 'pre-game'" class="pregame-window">
     <PreGameOverlay />
   </div>
+
+  <!-- Janela de Atualização -->
+  <UpdaterWindow v-else-if="windowLabel === 'updater'" />
 
   <!-- Fallback de depuração de segurança -->
   <div v-else class="fallback-debug">Window: {{ windowLabel }}</div>

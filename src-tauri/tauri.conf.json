@@ -117,6 +117,19 @@
         "resizable": false,
         "visible": false,
         "skipTaskbar": true
+      },
+      {
+        "label": "updater",
+        "url": "index.html",
+        "title": "Atualização Disponível",
+        "width": 460,
+        "height": 580,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "resizable": false,
+        "visible": false,
+        "center": true
       }
     ],
     "security": {

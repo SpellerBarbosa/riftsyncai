@@ -1221,16 +1221,15 @@ export function useSpellCoach() {
         const { version, notes } = event.payload ?? {};
         if (!version) return;
         console.log(`[Updater] Versão ${version} disponível.`);
-        const { ask } = await import('@tauri-apps/plugin-dialog');
-        const confirmed = await ask(
-          `Spell Coach IA ${version} está disponível!\n\n${notes ? notes.slice(0, 300) : ''}\n\nDeseja instalar agora? O app vai reiniciar.`,
-          { title: '🎮 Atualização Disponível', kind: 'info', okLabel: 'Instalar', cancelLabel: 'Depois' }
-        );
-        if (confirmed) {
-          console.log('[Updater] Iniciando download e instalação...');
-          await invoke('download_and_install_update').catch((e: any) =>
-            console.error('[Updater] Erro ao instalar:', e)
-          );
+        
+        // Passa os dados para a janela de atualização via localStorage
+        localStorage.setItem('spellcoach_update_data', JSON.stringify({ version, notes }));
+        
+        // Exibe a janela customizada de atualização (Nexus Explosion)
+        const updaterWindow = await WebviewWindow.getByLabel('updater');
+        if (updaterWindow) {
+          await updaterWindow.show();
+          await updaterWindow.setFocus();
         }
       });
     }

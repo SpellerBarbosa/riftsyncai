@@ -29,10 +29,23 @@ async fn download_and_install_update(app: tauri::AppHandle) -> Result<(), String
     match updater.check().await.map_err(|e| e.to_string())? {
         Some(update) => {
             println!("[Updater] Baixando versão {}...", update.version);
+            let handle_for_progress = app.clone();
             update
-                .download_and_install(|_chunk, _total| {}, || {})
+                .download_and_install(
+                    move |chunk, total| {
+                        let _ = handle_for_progress.emit("update-progress", serde_json::json!({
+                            "chunk": chunk,
+                            "total": total
+                        }));
+                    },
+                    || {
+                        println!("[Updater] Download concluído, instalando...");
+                    }
+                )
                 .await
                 .map_err(|e| e.to_string())?;
+            println!("[Updater] Atualização instalada. Reiniciando...");
+            app.restart();
             Ok(())
         }
         None => Err("Nenhuma atualização disponível.".into()),
