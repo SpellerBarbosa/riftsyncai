@@ -172,16 +172,19 @@ export function useVoiceCoach() {
   const testVoice = async () => {
     if (isTesting.value) return;
     isTesting.value = true;
-    const originalEnabled = voiceEnabled.value;
-    const originalStatus  = kokoroStatus.value;
-    voiceEnabled.value    = true;
-    kokoroStatus.value    = "ready";
+    lastVoiceError.value = null;
     try {
-      await speak("Voz do coach ativa e funcionando. Pronto para a partida!");
+      await invoke("play_voice", {
+        text:   "Voz do coach ativa. Pronto para a partida!",
+        voice:  selectedVoice.value,
+        volume: voiceVolume.value,
+        speed:  voiceRate.value,
+      });
+    } catch (err) {
+      lastVoiceError.value = String(err);
+      console.error("[testVoice]", err);
     } finally {
-      kokoroStatus.value = originalStatus;
-      voiceEnabled.value = originalEnabled;
-      isTesting.value    = false;
+      isTesting.value = false;
     }
   };
 

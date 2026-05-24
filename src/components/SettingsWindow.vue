@@ -234,6 +234,9 @@ onMounted(() => {
               <button class="btn-secondary" @click="testVoice" :disabled="voiceCoach.isTesting.value">
                 {{ voiceCoach.isTesting.value ? "⏳ Sintetizando..." : "🔊 Testar Voz" }}
               </button>
+              <div v-if="voiceCoach.isTesting.value" style="margin-top:4px; font-size:10px; color:#aaa;">
+                Primeira síntese pode levar até 60s enquanto o servidor acorda.
+              </div>
               <div v-if="voiceCoach.lastVoiceError.value" style="margin-top:6px; font-size:10px; color:#ff4e4e; background:rgba(255,78,78,0.08); border:1px solid rgba(255,78,78,0.3); padding:6px 8px; border-radius:4px; word-break:break-all;">
                 ❌ {{ voiceCoach.lastVoiceError.value }}
               </div>
