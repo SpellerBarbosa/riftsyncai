@@ -374,7 +374,7 @@ pub async fn get_rune_overlay_data_command_internal(
     if let Some(json_str) = runes_str {
         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&json_str) {
             primary_tree_id = parsed["primary_tree"].as_i64().unwrap_or(8000);
-            secondary_tree_id = parsed["secondary_tree"].as_i64().unwrap_or(8100);
+            secondary_tree_id = parsed["secondary_tree"].as_i64().unwrap_or(0);
             if let Some(arr) = parsed["runes"].as_array() {
                 runes = arr.iter().map(|v| v.as_i64().unwrap_or(0)).collect();
             }

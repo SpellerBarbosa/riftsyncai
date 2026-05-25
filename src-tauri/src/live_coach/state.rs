@@ -28,7 +28,6 @@ pub struct CoachState {
     pub active_recommendation: Option<ActiveRec>,
 
     // Telemetry and high-ELO macro additions
-    pub last_map_check_time: f64,
     pub last_gank_alert_time: f64,
     pub enemy_telemetries: Vec<EnemyTelemetry>,
     pub initialized_telemetry: bool,
@@ -38,22 +37,14 @@ pub struct CoachState {
     pub last_clear_step_time: f64,
     pub respawn_warnings_sent: std::collections::HashSet<String>,
 
-    // Animation cancel coach flag
-    pub animation_cancel_suggested: bool,
-
     // Recall and roaming high-ELO macro tracking
-    pub recall_timing_suggested: bool,
     pub mid_roaming_suggested: bool,
 
     // Support-specific macro coaching tracking
     pub sup_bush_dominance_suggested: bool,
-    pub sup_river_vision_suggested: bool,
 
     // Top-specific macro coaching tracking
-    pub top_wave_control_suggested: bool,
     pub top_grubs_priority_suggested: bool,
-    pub top_herald_suggested: bool,
-    pub top_tp_management_suggested: bool,
 
     // Skill level-up coaching tracker
     pub last_suggested_level_up: i32,
@@ -101,8 +92,13 @@ pub struct CoachState {
     pub last_ward_sighting_alert_time: f64,
     pub recent_enemy_sighting: Option<(String, String, f64)>,
 
-    // Impede que o mesmo context alert dispare consecutivamente.
-    pub last_context_alert_title: String,
+    // Alerta de oportunidade de objetivo quando 2+ inimigos morrem simultaneamente.
+    pub last_objective_opportunity_time: f64,
+
+    // Rastreamento de eventos do LCA (ChampionKill, Ace) para coaching contextual.
+    // Guarda quantos eventos já foram processados para evitar re-disparar nas próximas ticks.
+    pub last_processed_event_count: usize,
+    pub pending_event_tip: Option<(String, String)>,
 
     // ── Dados do banco (carregados uma vez por partida) ──────────────────────
     /// Flag — dados do DB já foram carregados para esta partida.
@@ -123,6 +119,12 @@ pub struct CoachState {
     pub db_matchup_difficulty: Option<i32>,
     /// Último game_time em que o ward map foi exibido (evita spam).
     pub last_ward_map_time: f64,
+    /// Último game_time em que o ward map de push foi exibido (após kill de laner).
+    pub last_push_ward_time: f64,
+    /// Último game_time em que request-groq-tip foi emitido (evita saturar a API).
+    pub last_groq_trigger_time: f64,
+    /// Flag — dica de início de partida via Groq já foi solicitada.
+    pub groq_game_start_triggered: bool,
     /// ID DDragon resolvido para queries de DB (ex: "MissFortune" a partir de "Miss Fortune").
     /// Resolvido uma vez por partida para evitar mismatch entre nomes LCA e DDragon.
     pub db_champion_key: String,
@@ -138,22 +140,15 @@ impl CoachState {
             last_danger_alert_time: 0.0,
             last_purchase_alert_time: 0.0,
             active_recommendation: None,
-            last_map_check_time: 0.0,
             last_gank_alert_time: 0.0,
             enemy_telemetries: Vec::new(),
             initialized_telemetry: false,
             first_clear_step: 0,
             last_clear_step_time: 0.0,
             respawn_warnings_sent: std::collections::HashSet::new(),
-            animation_cancel_suggested: false,
-            recall_timing_suggested: false,
             mid_roaming_suggested: false,
             sup_bush_dominance_suggested: false,
-            sup_river_vision_suggested: false,
-            top_wave_control_suggested: false,
             top_grubs_priority_suggested: false,
-            top_herald_suggested: false,
-            top_tp_management_suggested: false,
             last_suggested_level_up: 0,
             last_levelup_emit_time: -10.0,
             last_micro_time: 0.0,
@@ -174,7 +169,9 @@ impl CoachState {
             shown_categories: std::collections::HashMap::new(),
             last_ward_sighting_alert_time: 0.0,
             recent_enemy_sighting: None,
-            last_context_alert_title: String::new(),
+            last_objective_opportunity_time: 0.0,
+            last_processed_event_count: 0,
+            pending_event_tip: None,
             db_loaded: false,
             db_skill_order: Vec::new(),
             db_jungle_path: None,
@@ -184,6 +181,9 @@ impl CoachState {
             db_starting_items_suggested: false,
             db_matchup_difficulty: None,
             last_ward_map_time: -300.0,
+            last_push_ward_time: -300.0,
+            last_groq_trigger_time: -300.0,
+            groq_game_start_triggered: false,
             db_champion_key: String::new(),
             last_role: String::new(),
         }

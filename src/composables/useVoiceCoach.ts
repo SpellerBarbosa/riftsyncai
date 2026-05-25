@@ -1,4 +1,4 @@
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 
 // ---------------------------------------------------------------------------
@@ -19,6 +19,7 @@ let queueProcessing = false;
 export const VOICE_OPTIONS = [
   { value: "pf_dora",  label: "Francisca — Feminina BR 🇧🇷" },
   { value: "pm_alex",  label: "Antônio — Masculino BR 🇧🇷" },
+  { value: "pm_santa", label: "Papai Noel — Masculino BR 🇧🇷" },
   { value: "af_sky",   label: "Sky — Feminina EUA 🇺🇸" },
   { value: "am_adam",  label: "Adam — Masculino EUA 🇺🇸" },
   { value: "ef_dora",  label: "Dora — Feminina ESP 🇪🇸" },
@@ -191,9 +192,24 @@ export function useVoiceCoach() {
   // ---------------------------------------------------------------------------
   // Inicialização
   // ---------------------------------------------------------------------------
+  let _statusRetryInterval: ReturnType<typeof setInterval> | null = null;
+
   onMounted(() => {
     loadSettings();
     checkKokoroStatus();
+
+    // Retenta a cada 30s até o serviço ficar pronto (HuggingFace Space pode estar dormindo no startup)
+    _statusRetryInterval = setInterval(() => {
+      if (kokoroStatus.value === 'ready') {
+        if (_statusRetryInterval) { clearInterval(_statusRetryInterval); _statusRetryInterval = null; }
+        return;
+      }
+      checkKokoroStatus();
+    }, 30_000);
+  });
+
+  onUnmounted(() => {
+    if (_statusRetryInterval) { clearInterval(_statusRetryInterval); _statusRetryInterval = null; }
   });
 
   return {
@@ -206,6 +222,7 @@ export function useVoiceCoach() {
     kokoroStatus,
     lastVoiceError,
     checkKokoroStatus,
+    cleanTextForSpeech,
     speak,
     stop,
     testVoice,

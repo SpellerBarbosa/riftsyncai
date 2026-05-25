@@ -711,6 +711,8 @@ pub struct WardPoint {
     pub y: i64,
     /// 1–5: prioridade (1 = mais frequente nos dados de Challenger/Diamond)
     pub priority: i32,
+    /// "ward" (sentinela verde) ou "pink" (ward de controle rosa)
+    pub ward_type: String,
 }
 
 /// Retorna os pontos de ward mais comuns para o campeão/role no momento atual.
@@ -750,7 +752,7 @@ pub async fn get_ward_suggestions(
     let max_cnt = rows.first().map(|(_, _, c)| *c).unwrap_or(1).max(1);
     rows.into_iter().enumerate().map(|(i, (x, y, cnt))| {
         let priority = (5 - (cnt * 4 / max_cnt).min(4)) as i32;
-        WardPoint { x, y, priority: priority.max(1).min(5) + i as i32 / 3 }
+        WardPoint { x, y, priority: (priority.max(1) + i as i32 / 3).min(5), ward_type: "ward".to_string() }
     }).collect()
 }
 
@@ -801,7 +803,7 @@ pub async fn get_ward_suggestions_for_objective(
     let max_cnt = source.first().map(|(_, _, c)| *c).unwrap_or(1).max(1);
     source.into_iter().enumerate().map(|(i, (x, y, cnt))| {
         let priority = (5 - (cnt * 4 / max_cnt).min(4)) as i32;
-        WardPoint { x, y, priority: priority.max(1).min(5) + i as i32 / 3 }
+        WardPoint { x, y, priority: (priority.max(1) + i as i32 / 3).min(5), ward_type: "ward".to_string() }
     }).collect()
 }
 

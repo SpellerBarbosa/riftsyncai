@@ -6,6 +6,7 @@ mod game_flow;
 mod groq;
 mod lca;
 mod lcu;
+pub mod minimap;
 pub mod post_game;
 mod riot_api;
 pub mod live_coach;
@@ -15,11 +16,6 @@ mod window;
 use tauri::{Emitter, Manager};
 
 pub use voice::{VoicePlayer, PlaySource};
-
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
 
 /// Verifica e instala a atualização disponível (chamado pelo frontend após confirmação do usuário).
 #[tauri::command]
@@ -197,18 +193,18 @@ pub fn run() {
                 }
             });
 
-            // Aquece o servidor TTS no Render para eliminar cold start na primeira dica
+            // Aquece o servidor TTS (HuggingFace Space) para eliminar cold start na primeira dica
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                println!("[TTS Warmup] Acordando servidor spell-tts-api...");
+                println!("[TTS Warmup] Acordando RiftSyncAI TTS...");
                 match reqwest::Client::builder()
                     .timeout(std::time::Duration::from_secs(90))
                     .build()
                 {
                     Ok(client) => {
                         let res = client
-                            .post("https://spell-tts-api.onrender.com/tts")
-                            .json(&serde_json::json!({"text": "ok", "voice": "pf_dora", "speed": 1.0}))
+                            .post("https://spell2014-riftsyncai.hf.space/tts")
+                            .json(&serde_json::json!({"text": "ok", "voice": "pf_dora", "speed": 1.0, "lang": "pt-br"}))
                             .send()
                             .await;
                         match res {
@@ -223,7 +219,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet,
             is_db_ready,
             lcu::get_lcu_status,
             lcu::get_current_summoner,
@@ -277,6 +272,7 @@ pub fn run() {
             window::resize_main_window,
             voice::get_kokoro_status,
             voice::get_audio_status,
+            voice::prefetch_voice,
             voice::play_voice,
             voice::stop_voice,
             voice::test_audio_output,

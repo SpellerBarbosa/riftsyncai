@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { useVoiceCoach, VOICE_OPTIONS } from "../composables/useVoiceCoach";
-
-import { computed } from "vue";
+import { useCoachSettings } from "../composables/useCoachSettings";
 
 const voiceCoach = useVoiceCoach();
 
@@ -37,6 +36,16 @@ const selectedVoice = computed({
 
 const testVoice = voiceCoach.testVoice;
 const saveVoiceSettings = voiceCoach.saveSettings;
+
+const coachSettings = useCoachSettings();
+const wardAlertsEnabled = computed({
+  get: () => coachSettings.wardAlertsEnabled.value,
+  set: (val) => { coachSettings.wardAlertsEnabled.value = val; coachSettings.saveSettings(); }
+});
+const skillTipsEnabled = computed({
+  get: () => coachSettings.skillTipsEnabled.value,
+  set: (val) => { coachSettings.skillTipsEnabled.value = val; coachSettings.saveSettings(); }
+});
 
 const audioTestResult = ref<string | null>(null);
 const audioTestLoading = ref(false);
@@ -253,6 +262,36 @@ onMounted(() => {
                 {{ audioTestResult }}
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ALERTAS DE JOGO -->
+      <section class="settings-section">
+        <div class="section-header">
+          <span class="icon">👁️</span>
+          <h3>Alertas de Jogo</h3>
+        </div>
+        <div class="setting-card col">
+          <div class="switch-row">
+            <div class="card-info">
+              <h4>Mapa de Wards Geral</h4>
+              <p>Exibe sugestões de ward a cada 2 minutos e após abates. O alerta de ward <strong>antes de objetivos</strong> permanece ativo independente desta configuração.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" v-model="wardAlertsEnabled" />
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="switch-row" style="margin-top: 8px;">
+            <div class="card-info">
+              <h4>Dicas de Habilidades</h4>
+              <p>Exibe qual skill evoluir ao subir de nível e a prioridade de maximização no início da partida.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" v-model="skillTipsEnabled" />
+              <span class="slider"></span>
+            </label>
           </div>
         </div>
       </section>

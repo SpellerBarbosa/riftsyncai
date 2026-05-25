@@ -1,4 +1,4 @@
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 pub enum PlaySource {
     Samples(Vec<f32>),
@@ -165,16 +165,16 @@ async fn cleanup_voice_cache(db: &sqlx::Pool<sqlx::Sqlite>, max_files: i64) {
     }
 }
 
-#[tauri::command]
-pub(crate) async fn play_voice(
+/// Garante que o áudio está em cache (gera via API se necessário) e retorna o path do WAV.
+/// Usado tanto por play_voice quanto por prefetch_voice.
+async fn ensure_audio_cached(
     text: String,
     voice: String,
-    volume: f32,
     speed: f32,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
-    let text = if text.chars().count() > 100 {
-        let truncated: String = text.chars().take(100).collect();
+    app: &tauri::AppHandle,
+) -> Result<String, String> {
+    let text = if text.chars().count() > 65 {
+        let truncated: String = text.chars().take(65).collect();
         match truncated.rfind(' ') {
             Some(pos) => truncated[..pos].to_string(),
             None => truncated,
@@ -182,8 +182,6 @@ pub(crate) async fn play_voice(
     } else {
         text
     };
-
-    println!("[play_voice] text: '{}', voice: '{}', volume: {}, speed: {}", text, voice, volume, speed);
 
     let api_voice = if voice.to_lowercase() == "francisca" {
         "pf_dora".to_string()
@@ -193,7 +191,16 @@ pub(crate) async fn play_voice(
         voice.clone()
     };
 
-    let phrase_key = format!("{}:{:.2}:{}", api_voice, speed, text);
+    let lang: &str = match api_voice.chars().next() {
+        Some('p') => "pt-br",
+        _         => "",
+    };
+
+    let phrase_key = if lang.is_empty() {
+        format!("{}:{:.2}:{}", api_voice, speed, text)
+    } else {
+        format!("{}:{}:{:.2}:{}", api_voice, lang, speed, text)
+    };
 
     let pool = app.try_state::<crate::db::DbState>()
         .ok_or_else(|| "Banco de dados não inicializado.".to_string())?;
@@ -207,22 +214,16 @@ pub(crate) async fn play_voice(
     .await
     .map_err(|e| format!("Erro ao consultar cache de voz: {}", e))?;
 
-    let player = app.try_state::<VoicePlayer>()
-        .ok_or_else(|| "Motor de áudio não inicializado.".to_string())?;
-
     if let Some((_id, audio_path_str)) = cached_entry {
-        let path = std::path::Path::new(&audio_path_str);
-        if path.exists() {
+        if std::path::Path::new(&audio_path_str).exists() {
             println!("[Voice Cache DB] HIT: '{}'", audio_path_str);
-            let done_rx = player.inner().play_source(PlaySource::File(audio_path_str), volume, 1.0)?;
-            tokio::task::spawn_blocking(move || { let _ = done_rx.recv(); })
-                .await.map_err(|e| e.to_string())?;
-            return Ok(());
+            return Ok(audio_path_str);
         }
-        let _ = sqlx::query("DELETE FROM voice_cache WHERE phrase_key = ?").bind(&phrase_key).execute(db).await;
+        let _ = sqlx::query("DELETE FROM voice_cache WHERE phrase_key = ?")
+            .bind(&phrase_key).execute(db).await;
     }
 
-    println!("[Voice] MISS. Chamando API remota spell-tts-api...");
+    println!("[Voice] MISS — gerando: '{}'", text);
     let start = std::time::Instant::now();
 
     let client = reqwest::Client::builder()
@@ -230,13 +231,7 @@ pub(crate) async fn play_voice(
         .build()
         .map_err(|e| format!("Erro ao criar cliente HTTP: {}", e))?;
 
-    let lang = if api_voice.starts_with('p') { "pt-br" } else { "" };
-
-    let mut payload = serde_json::json!({
-        "text": text,
-        "voice": api_voice,
-        "speed": speed
-    });
+    let mut payload = serde_json::json!({ "text": text, "voice": api_voice, "speed": speed });
     if !lang.is_empty() {
         payload["lang"] = serde_json::json!(lang);
     }
@@ -252,11 +247,10 @@ pub(crate) async fn play_voice(
         return Err(format!("API de voz retornou erro HTTP {}", response.status()));
     }
 
-    let wav_bytes = response.bytes()
-        .await
+    let wav_bytes = response.bytes().await
         .map_err(|e| format!("Erro ao ler resposta da API: {}", e))?;
 
-    println!("[Voice] API respondeu em {:?} ({} bytes)", start.elapsed(), wav_bytes.len());
+    println!("[Voice] Gerado em {:?} ({} bytes)", start.elapsed(), wav_bytes.len());
 
     let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let cache_dir = app_dir.join("voice_cache");
@@ -287,10 +281,41 @@ pub(crate) async fn play_voice(
         println!("[Voice Cache DB] Salvo (7 dias): '{}'", audio_path_str);
         cleanup_voice_cache(db, 80).await;
     } else if let Err(e) = db_res {
-        eprintln!("[Voice Cache DB] Erro ao registrar no SQLite: {}", e);
+        eprintln!("[Voice Cache DB] Erro ao salvar cache: {}", e);
     }
 
-    let done_rx = player.inner().play_source(PlaySource::File(audio_path_str), volume, 1.0)?;
+    Ok(audio_path_str)
+}
+
+/// Pré-gera e armazena em cache o áudio sem reproduzir.
+/// Chamado quando uma dica entra na fila para que play_voice seja um cache hit quase certo.
+#[tauri::command]
+pub(crate) async fn prefetch_voice(
+    text: String,
+    voice: String,
+    speed: f32,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    ensure_audio_cached(text, voice, speed, &app).await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn play_voice(
+    text: String,
+    voice: String,
+    volume: f32,
+    speed: f32,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    println!("[play_voice] voice: '{}', volume: {}, speed: {}", voice, volume, speed);
+    let audio_path = ensure_audio_cached(text, voice, speed, &app).await?;
+
+    let player = app.try_state::<VoicePlayer>()
+        .ok_or_else(|| "Motor de áudio não inicializado.".to_string())?;
+
+    let _ = app.emit("voice-playback-started", serde_json::json!({}));
+    let done_rx = player.inner().play_source(PlaySource::File(audio_path), volume, 1.0)?;
     tokio::task::spawn_blocking(move || { let _ = done_rx.recv(); })
         .await.map_err(|e| e.to_string())?;
 

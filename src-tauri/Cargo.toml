@@ -1,6 +1,6 @@
 [package]
 name = "tauri-app"
-version = "0.2.23"
+version = "0.2.24"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -35,4 +35,5 @@ dotenvy = "0.15"
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "macros"] }
 regex = "1.10"
 rodio = { version = "0.19.0", features = ["symphonia-mp3"] }
+screenshots = "0.8"
 

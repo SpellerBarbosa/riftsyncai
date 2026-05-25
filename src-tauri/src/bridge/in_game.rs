@@ -4,65 +4,151 @@ use crate::db;
 
 // Posições estáticas de ward de alto nível para quando o DB não tem dados do campeão/role.
 // Coordenadas no espaço de jogo LoL (0–15000). Base azul = canto inferior-esquerdo.
-fn static_wards_for_objective(objective_key: &str) -> Vec<crate::db::coach_service::WardPoint> {
+fn static_wards_for_objective(objective_key: &str, team_side: &str) -> Vec<crate::db::coach_service::WardPoint> {
     use crate::db::coach_service::WardPoint;
-    // Pontos clássicos dos montes (arbustos) próximos a cada objetivo neutro
-    let coords: &[(i64, i64)] = match objective_key {
-        "dragon" => &[
-            (10200, 5800), // arbusto entrada azul do pit do Dragão
-            (11000, 3900), // arbusto entrada vermelha / rio sul
+    let is_red = team_side == "red";
+    // 2 wards de sentinela + 1 pink (posição de controle dentro do pit).
+    // Mesmas coordenadas absolutas para ambos os lados (objetivos ficam no mesmo ponto do mapa),
+    // mas a ORDEM de prioridade muda: cada time prioriza a entrada do seu lado primeiro.
+    let coords: Vec<(i64, i64, &str)> = match objective_key {
+        "dragon" => {
+            if !is_red {
+                vec![
+                    (10200, 5800, "ward"),  // entrada aliada (norte/azul) — abate de gank
+                    (11000, 3900, "ward"),  // entrada inimiga (sul/vermelho)
+                    (9800,  4400, "pink"),  // dentro do pit
+                ]
+            } else {
+                vec![
+                    (11000, 3900, "ward"),  // entrada aliada (sul/vermelho) — prioridade red
+                    (10200, 5800, "ward"),  // entrada inimiga (norte/azul) — nega visão
+                    (9800,  4400, "pink"),  // dentro do pit
+                ]
+            }
+        }
+        "baron" | "herald" => {
+            if !is_red {
+                vec![
+                    (4200, 11800, "ward"),  // tri-bush entrada aliada (azul)
+                    (5800, 10600, "ward"),  // entrada inimiga (vermelho/leste)
+                    (4951, 10440, "pink"),  // dentro do pit
+                ]
+            } else {
+                vec![
+                    (5800, 10600, "ward"),  // entrada aliada (vermelho/leste) — prioridade red
+                    (4200, 11800, "ward"),  // tri-bush entrada inimiga (azul)
+                    (4951, 10440, "pink"),  // dentro do pit
+                ]
+            }
+        }
+        "scuttle" => vec![
+            // Aronguejo: acesso simétrico para ambos os lados
+            (9200, 5600, "ward"),
+            (6400, 9300, "ward"),
+            (8000, 6000, "pink"),
         ],
-        "baron" | "herald" => &[
-            (4200, 11800), // monte tri-bush entrada azul do pit do Barão/Arauto
-            (5800, 10600), // rio médio próximo ao Barão (visão lateral)
-        ],
-        "scuttle" => &[
-            (9200, 5600), // arbusto rio bot perto do Aronguejo
-            (6400, 9300), // arbusto rio top (Aronguejo superior)
-        ],
-        _ => &[],
+        _ => vec![],
     };
-    coords.iter().enumerate()
-        .map(|(i, &(x, y))| WardPoint { x, y, priority: i as i32 + 1 })
+    coords.into_iter().enumerate()
+        .map(|(i, (x, y, t))| WardPoint { x, y, priority: i as i32 + 1, ward_type: t.to_string() })
         .collect()
 }
 
 fn static_wards_generic(role: &str, team_side: &str) -> Vec<crate::db::coach_service::WardPoint> {
     use crate::db::coach_service::WardPoint;
-    let coords: Vec<(i64, i64)> = match role {
+    // 2 wards + 1 pink por role (suporte tem 2 pinks — cobre mais pontos de visão).
+    let coords: Vec<(i64, i64, &str)> = match role {
         "TOP" => {
             if team_side == "blue" {
-                vec![(2600, 12500), (3800, 11200)] // rio/tri-bush topo lado azul
+                vec![(2600, 12500, "ward"), (3800, 11200, "ward"), (1800, 13200, "pink")]
             } else {
-                vec![(12400, 2500), (11200, 3800)] // espelhado lado vermelho
+                vec![(12400, 2500, "ward"), (11200, 3800, "ward"), (13200, 1800, "pink")]
             }
         }
         "JUNGLE" => {
             if team_side == "blue" {
-                vec![(7500, 11400), (9200, 5800)] // visão rio top + bot
+                vec![(7500, 11400, "ward"), (9200, 5800, "ward"), (4951, 10440, "pink")]
             } else {
-                vec![(7500, 3600), (5800, 9200)]
+                vec![(7500, 3600, "ward"), (5800, 9200, "ward"), (9866, 4414, "pink")]
             }
         }
-        "MID" => vec![(6900, 9200), (8800, 6000)], // rios laterais mid-lane
+        "MID" => {
+            if team_side == "blue" {
+                vec![(8800, 6200, "ward"), (6200, 8800, "ward"), (9500, 4800, "pink")]
+            } else {
+                vec![(6200, 8800, "ward"), (8800, 6200, "ward"), (5500, 10200, "pink")]
+            }
+        }
         "ADC" => {
             if team_side == "blue" {
-                vec![(9200, 5800), (10200, 4500)] // arbusto bot-lane + entrada dragão
+                vec![(10200, 5200, "ward"), (11500, 1800, "ward"), (9800, 4400, "pink")]
             } else {
-                vec![(5800, 9200), (4800, 10500)]
+                vec![(4800, 9800, "ward"), (3500, 13200, "ward"), (5200, 10600, "pink")]
             }
         }
         "SUPPORT" => {
             if team_side == "blue" {
-                vec![(9200, 5800), (10200, 4200)] // visão dragon área (suporte carrega visão)
+                // 2 wards de rota + 2 pinks: pit do dragão e pixel bush do bot
+                vec![(10200, 4200, "ward"), (11800, 1500, "ward"), (9800, 4000, "pink"), (12000, 2800, "pink")]
             } else {
-                vec![(5800, 9200), (4800, 10800)]
+                // Lado vermelho: baron area + pixel bush do top bot
+                vec![(4800, 10800, "ward"), (3200, 13500, "ward"), (5200, 11000, "pink"), (3000, 12200, "pink")]
             }
         }
-        _ => vec![(7500, 9000), (8500, 6000)], // mid genérico
+        _ => vec![(7500, 9000, "ward"), (8500, 6000, "ward"), (8000, 7500, "pink")],
     };
     coords.into_iter().enumerate()
-        .map(|(i, (x, y))| WardPoint { x, y, priority: i as i32 + 1 })
+        .map(|(i, (x, y, t))| WardPoint { x, y, priority: i as i32 + 1, ward_type: t.to_string() })
+        .collect()
+}
+
+/// Pontos de ward para o momento de push após matar o inimigo de rota.
+/// Foco em cobrir as entradas de gank enquanto o jogador avança na rota.
+fn push_wards_for_role(role: &str, team_side: &str) -> Vec<crate::db::coach_service::WardPoint> {
+    use crate::db::coach_service::WardPoint;
+    let coords: Vec<(i64, i64, &str)> = match role {
+        "TOP" => {
+            if team_side == "blue" {
+                // Empurrando para torre inimiga do topo (lado azul): cobre entrada do JG vindo do topo
+                vec![(3000, 12800, "ward"), (2300, 11000, "ward"), (1800, 13000, "pink")]
+            } else {
+                vec![(12000, 2200, "ward"), (13000, 4000, "ward"), (13200, 1800, "pink")]
+            }
+        }
+        "MID" => {
+            if team_side == "blue" {
+                // Empurrando mid: cobre JG entrando pelo bot e top
+                vec![(8800, 6200, "ward"), (6200, 8800, "ward"), (9500, 4800, "pink")]
+            } else {
+                vec![(6200, 8800, "ward"), (8800, 6200, "ward"), (5500, 10200, "pink")]
+            }
+        }
+        "ADC" => {
+            if team_side == "blue" {
+                vec![(10200, 5200, "ward"), (11800, 1500, "ward"), (9800, 4000, "pink")]
+            } else {
+                vec![(4800, 9800, "ward"), (3200, 13500, "ward"), (5200, 11000, "pink")]
+            }
+        }
+        "SUPPORT" => {
+            if team_side == "blue" {
+                // Empurrando bot: cobre dragon + pixel bush — suporte planta 2 pinks
+                vec![(10200, 5200, "ward"), (11800, 1500, "ward"), (9800, 4000, "pink"), (11200, 3200, "pink")]
+            } else {
+                vec![(4800, 9800, "ward"), (3200, 13500, "ward"), (5200, 11000, "pink"), (3800, 11800, "pink")]
+            }
+        }
+        "JUNGLE" => {
+            if team_side == "blue" {
+                vec![(9200, 5800, "ward"), (5800, 9200, "ward"), (4951, 10440, "pink")]
+            } else {
+                vec![(5800, 9200, "ward"), (9200, 5800, "ward"), (9866, 4414, "pink")]
+            }
+        }
+        _ => vec![(7500, 9000, "ward"), (8500, 6000, "ward"), (8000, 7500, "pink")],
+    };
+    coords.into_iter().enumerate()
+        .map(|(i, (x, y, t))| WardPoint { x, y, priority: i as i32 + 1, ward_type: t.to_string() })
         .collect()
 }
 
@@ -303,11 +389,21 @@ pub(super) async fn handle_in_game_coaching(
                     "frontText": format!("1→5: {}", order_str),
                     "backText": format!("Maximize {} primeiro. Ordem dos primeiros níveis: {}.", max_skill, order_str),
                     "rarity": "rare",
+                    "category": "skill",
                     "dismiss": { "type": "fallback", "max_ms": 20000 }
                 }));
                 *last_tip_emit_time = game_time;
                 emitted_this_cycle = true;
                 println!("[DB] Skill priority emitida: max {} | {}", max_skill, order_str);
+            }
+
+            // ── Groq: trigger de início de partida (15–20s) ──────────────────────
+            // Dispara uma vez por partida para que o Groq forneça contexto de early game.
+            if !coach_state.groq_game_start_triggered && game_time >= 15.0 && game_time < 30.0 {
+                coach_state.groq_game_start_triggered = true;
+                coach_state.last_groq_trigger_time = game_time;
+                let _ = handle.emit("request-groq-tip", serde_json::json!({}));
+                println!("[Groq] Trigger de início de partida em {:.0}s", game_time);
             }
 
             // ── Dica de itens iniciais (meta) — dispara uma vez nos primeiros 5s ──
@@ -440,9 +536,10 @@ pub(super) async fn handle_in_game_coaching(
                 println!("[LiveCoach] Skill level-up -> {}", lu_title);
                 let _ = handle.emit("update-flashcard-content", serde_json::json!({
                     "title": lu_title,
-                    "frontText": format!("Skill Up: {}", role_for_runes),
+                    "frontText": format!("Nível {}", level),
                     "backText": lu_text,
                     "rarity": "common",
+                    "category": "skill",
                     "dismiss": {
                         "type": "skill_leveled",
                         "snapshot": { "q": ability_q, "w": ability_w, "e": ability_e, "r": ability_r }
@@ -454,28 +551,127 @@ pub(super) async fn handle_in_game_coaching(
             }
             }
 
+            // ── Tip de evento (morte/kill/ace) — gerada na tick anterior pelo event loop ──
+            // Tem prioridade sobre sighting: morte e ace são mais urgentes.
+            if !emitted_this_cycle && !jungle_clear_pending {
+                if let Some((ev_title, ev_text)) = coach_state.pending_event_tip.take() {
+                    let _ = handle.emit("update-flashcard-content", serde_json::json!({
+                        "title": ev_title,
+                        "frontText": ev_text,
+                        "backText": ev_text,
+                        "rarity": "epic",
+                        "dismiss": { "type": "fallback", "max_ms": 15000 }
+                    }));
+                    emitted_this_cycle = true;
+                }
+            }
+
             // ── Alerta de inimigo avistado (bypass do cooldown global — time-sensitive) ──
             if !emitted_this_cycle && !jungle_clear_pending {
                 if let Some((sighting_champ, sighting_role, fog_secs)) = coach_state.recent_enemy_sighting.take() {
                     if game_time > 90.0 && (game_time - coach_state.last_ward_sighting_alert_time) >= 20.0 {
                         coach_state.last_ward_sighting_alert_time = game_time;
-                        let role_label = match sighting_role.as_str() {
-                            "JUNGLE" => "caçador",
-                            "MID" => "meio",
-                            "ADC" => "atirador",
-                            "SUPPORT" => "suporte",
-                            "TOP" => "topo",
-                            _ => "inimigo",
+
+                        // Detecta zona real via análise de pixels do minimapa (~1-3ms em thread bloqueante).
+                        // Fallback para zona derivada do role se a captura falhar ou não achar clusters.
+                        let role_for_capture = sighting_role.clone();
+                        let detected_zone = tokio::task::spawn_blocking(move || {
+                            crate::minimap::find_enemy_zone(&role_for_capture)
+                        }).await.ok().flatten();
+
+                        let location = detected_zone.as_deref().unwrap_or_else(|| {
+                            match sighting_role.as_str() {
+                                "JUNGLE"           => "no rio",
+                                "TOP"              => "no top",
+                                "MID"              => "no meio",
+                                "ADC" | "SUPPORT"  => "no bot",
+                                _                  => "no mapa",
+                            }
+                        });
+
+                        // Filtra alertas de inimigos voltando para a própria rota:
+                        // Se um laner aparece na zona esperada da role dele, provavelmente
+                        // foi apenas recall/visão de minions — não é uma rotação relevante.
+                        // Junglers (sem zona fixa) e inimigos em zonas inesperadas sempre alertam.
+                        let enemy_expected_zone = match sighting_role.as_str() {
+                            "TOP"             => "no top",
+                            "MID"             => "no meio",
+                            "ADC" | "SUPPORT" => "no bot",
+                            _                 => "", // JUNGLE não tem zona fixa
                         };
+                        let returning_to_own_lane = !enemy_expected_zone.is_empty()
+                            && location == enemy_expected_zone;
+
+                        if returning_to_own_lane {
+                            let src = if detected_zone.is_some() { "minimapa" } else { "role" };
+                            println!("[Sighting] {} voltou à própria rota ({}) via {} — ignorado", sighting_champ, location, src);
+                        } else {
+                            let msg = format!("{} visto {}", sighting_champ, location);
+                            let _ = handle.emit("update-flashcard-content", serde_json::json!({
+                                "title": "👁️ Inimigo Avistado",
+                                "frontText": msg,
+                                "backText": msg,
+                                "rarity": "epic",
+                                "dismiss": { "type": "game_time_gte", "target": game_time + 18.0 }
+                            }));
+                            emitted_this_cycle = true;
+                            let src = if detected_zone.is_some() { "minimapa" } else { "role" };
+                            println!("[Sighting] {} visto {} (via {}, névoa {:.0}s)", sighting_champ, location, src, fog_secs);
+                        }
+                    }
+                }
+            }
+
+            // ── Oportunidade de objetivo (2+ inimigos mortos) ────────────────────
+            // Usa isDead do LCA (disponível por tick) — sem OCR necessário.
+            // Prioridade: Barão > Dragão > Arauto. Só alerta se o objetivo estiver vivo.
+            if !emitted_this_cycle && !jungle_clear_pending {
+                let dead_count = lca_data["allPlayers"].as_array()
+                    .map(|players| {
+                        players.iter()
+                            .filter(|p| {
+                                let p_team = p["team"].as_str().unwrap_or("ORDER").to_uppercase();
+                                p_team != team_side && p["isDead"].as_bool().unwrap_or(false)
+                            })
+                            .count()
+                    })
+                    .unwrap_or(0);
+
+                if dead_count >= 2
+                    && (game_time - coach_state.last_objective_opportunity_time) >= 60.0
+                {
+                    let dragon_alive = game_time >= coach_state.dragon_next_spawn;
+                    let baron_alive  = game_time >= coach_state.baron_next_spawn;
+                    let herald_alive = !coach_state.herald_done
+                        && game_time >= 480.0  // 8:00 — primeiro spawn do Arauto
+                        && game_time < 840.0;  // 14:00 — despawn
+
+                    let (obj_name, obj_emoji) = if baron_alive {
+                        ("Barão", "💜")
+                    } else if dragon_alive {
+                        ("Dragão", "🐉")
+                    } else if herald_alive {
+                        ("Arauto", "🔮")
+                    } else {
+                        ("", "")
+                    };
+
+                    if !obj_name.is_empty() {
+                        coach_state.last_objective_opportunity_time = game_time;
+                        let front_msg = format!("{} inimigos mortos — {} disponível!", dead_count, obj_name);
+                        let back_msg = format!(
+                            "{} inimigos caíram. Aproveite para garantir o {}.",
+                            dead_count, obj_name
+                        );
                         let _ = handle.emit("update-flashcard-content", serde_json::json!({
-                            "title": "👁️ Inimigo Revelado",
-                            "frontText": format!("{} ({}) visto no mapa", sighting_champ, role_label),
-                            "backText": format!("{} sumiu {:.0}s — reavalie antes de avançar.", sighting_champ, fog_secs),
-                            "rarity": "epic",
-                            "dismiss": { "type": "game_time_gte", "target": game_time + 18.0 }
+                            "title": format!("{} Oportunidade!", obj_emoji),
+                            "frontText": front_msg,
+                            "backText": back_msg,
+                            "rarity": "legendary",
+                            "dismiss": { "type": "fallback", "max_ms": 20000 }
                         }));
                         emitted_this_cycle = true;
-                        println!("[Sighting] {} ({}) após {:.0}s de névoa", sighting_champ, sighting_role, fog_secs);
+                        println!("[Objective] {} inimigos mortos → {}", dead_count, obj_name);
                     }
                 }
             }
@@ -554,38 +750,144 @@ pub(super) async fn handle_in_game_coaching(
             let phase = if game_time < 600.0 { "early" }
                         else if game_time < 1200.0 { "mid" }
                         else { "late" };
-            let my_team_side = if lca_data["allPlayers"].as_array()
-                .and_then(|arr| arr.iter().find(|p| {
-                    p["summonerName"].as_str().unwrap_or("") == active_summ_name
-                }))
-                .and_then(|p| p["team"].as_str())
-                .unwrap_or("ORDER") == "ORDER" { "blue" } else { "red" };
+            // Reutiliza team_side já computado com matching triplo (nome/base/campeão) — muito mais
+            // robusto que o exact match que existia aqui antes (defaultava para blue incorretamente).
+            let my_team_side = if team_side == "ORDER" { "blue" } else { "red" };
 
-            // ── 1. Atualiza spawn times a partir dos eventos do LCA ───────────
+            // Inventário do jogador — necessário para filtrar pink ward
+            let gs_inventory: Vec<i64> = lca_data["allPlayers"].as_array()
+                .and_then(|players| players.iter().find(|p| {
+                    let p_name = p["summonerName"].as_str().unwrap_or("");
+                    let p_base = p_name.split('#').next().unwrap_or(p_name).to_lowercase();
+                    p_name == active_summ_name || (!active_base.is_empty() && p_base == active_base)
+                }))
+                .map(|p| p["items"].as_array()
+                    .map(|items| items.iter()
+                        .filter_map(|i| i["itemID"].as_i64())
+                        .collect::<Vec<i64>>())
+                    .unwrap_or_default())
+                .unwrap_or_default();
+
+            // ── 1. Atualiza spawn times + detecta kill/death/ace para coaching ──
             if let Some(events) = lca_data["events"]["Events"].as_array() {
-                for event in events {
+                // Passagem 1: spawn times (idempotente — pode re-processar sem problema)
+                for event in events.iter() {
                     let name = event["EventName"].as_str().unwrap_or("");
                     let time = event["EventTime"].as_f64().unwrap_or(0.0);
                     match name {
                         "DragonKill" => {
-                            let next = time + 300.0; // 5 min respawn
+                            let next = time + 300.0;
                             if next > coach_state.dragon_next_spawn {
                                 coach_state.dragon_next_spawn = next;
                                 println!("[Objective] Dragão morto em {:.0}s → próximo em {:.0}s", time, next);
                             }
                         }
                         "BaronKill" => {
-                            let next = time + 360.0; // 6 min respawn
+                            let next = time + 360.0;
                             if next > coach_state.baron_next_spawn {
                                 coach_state.baron_next_spawn = next;
                                 println!("[Objective] Barão morto em {:.0}s → próximo em {:.0}s", time, next);
                             }
                         }
-                        "HeraldKill" => {
-                            coach_state.herald_done = true;
-                        }
+                        "HeraldKill" => { coach_state.herald_done = true; }
                         _ => {}
                     }
+                }
+
+                // Passagem 2: novos eventos de kill/death/ace (processados uma única vez)
+                let total_events = events.len();
+                if total_events > coach_state.last_processed_event_count {
+                    for event in events[coach_state.last_processed_event_count..].iter() {
+                        let name = event["EventName"].as_str().unwrap_or("");
+                        let event_time = event["EventTime"].as_f64().unwrap_or(0.0);
+                        match name {
+                            "ChampionKill" if event_time > 60.0 => {
+                                let victim = event["VictimName"].as_str().unwrap_or("");
+                                let killer = event["KillerName"].as_str().unwrap_or("");
+                                let vbase  = victim.split('#').next().unwrap_or(victim).to_lowercase();
+                                let kbase  = killer.split('#').next().unwrap_or(killer).to_lowercase();
+
+                                let player_died = victim == active_summ_name
+                                    || (!active_base.is_empty() && vbase == active_base)
+                                    || (!active_champ_name.is_empty() && victim.to_lowercase() == active_champ_name);
+                                let player_killed = killer == active_summ_name
+                                    || (!active_base.is_empty() && kbase == active_base);
+
+                                if player_died {
+                                    let tip = match role_for_runes {
+                                        "TOP"     => "Congele perto da sua torre e minimize risco. Se foi gank, ward o rio antes de avançar.",
+                                        "MID"     => "Jogue curto e ward as entradas do rio. Não avance sem visão do JG.",
+                                        "ADC"     => "Fique atrás do suporte nas próximas trocas. Sobreviver vale mais que o abate.",
+                                        "SUPPORT" => "Proteja o atirador — posicione entre ele e o perigo.",
+                                        "JUNGLE"  => "Limpe o lado oposto ao JG inimigo. Evite re-mortes forçando ganks.",
+                                        _         => "Ajuste o posicionamento e evite o mesmo erro.",
+                                    };
+                                    // Morte tem prioridade: sobrescreve kill tip anterior
+                                    coach_state.pending_event_tip = Some((
+                                        "💀 Depois da Morte".to_string(),
+                                        tip.to_string(),
+                                    ));
+                                    // Groq: solicita dica contextual ao morrer (cooldown 2 min)
+                                    let groq_ok = (game_time - coach_state.last_groq_trigger_time) >= 120.0;
+                                    if groq_ok {
+                                        coach_state.last_groq_trigger_time = game_time;
+                                        let _ = handle.emit("request-groq-tip", serde_json::json!({}));
+                                        println!("[Groq] Trigger por morte em {:.0}s", game_time);
+                                    }
+                                    println!("[Event] Morte detectada — tip de ajuste de posicionamento");
+                                } else if player_killed && coach_state.pending_event_tip.is_none() {
+                                    // Kill só seta se não há morte pendente
+                                    coach_state.pending_event_tip = Some((
+                                        "🔥 Abate — Converta Agora".to_string(),
+                                        "Empurre a onda e converta em torre ou objetivo próximo antes que eles respawnem.".to_string(),
+                                    ));
+                                    println!("[Event] Kill confirmado — tip de conversão");
+
+                                    // Push ward map — emite posições de ward para janela de push
+                                    let push_cooldown_ok = (game_time - coach_state.last_push_ward_time) >= 60.0;
+                                    if push_cooldown_ok && game_time < 1200.0 {
+                                        let pink_count = gs_inventory.iter().filter(|&&id| id == 2055).count();
+                                        let mut push_wards = push_wards_for_role(role_for_runes, my_team_side);
+                                        let mut pinks_seen = 0usize;
+                                        push_wards.retain(|w| {
+                                            if w.ward_type == "pink" { pinks_seen += 1; pinks_seen <= pink_count }
+                                            else { true }
+                                        });
+                                        if !push_wards.is_empty() {
+                                            coach_state.last_push_ward_time = game_time;
+                                            let pw_count = push_wards.len();
+                                            let _ = handle.emit("update-ward-map", serde_json::json!({
+                                                "champion": champion_for_runes,
+                                                "role": role_for_runes,
+                                                "game_time": game_time,
+                                                "phase": phase,
+                                                "team_side": my_team_side,
+                                                "wards": push_wards,
+                                                "display_secs": 10,
+                                            }));
+                                            println!("[WardMap:Push] {} pontos para janela de push após kill", pw_count);
+                                        }
+                                    }
+                                }
+                            }
+                            "Ace" => {
+                                let acing_team = event["AcingTeam"].as_str().unwrap_or("");
+                                if acing_team == team_side {
+                                    let obj = if game_time >= coach_state.baron_next_spawn { "Barão" }
+                                        else if game_time >= coach_state.dragon_next_spawn { "Dragão" }
+                                        else { "uma torre" };
+                                    // Ace sempre sobrescreve — é a maior oportunidade do jogo
+                                    coach_state.pending_event_tip = Some((
+                                        "⚔️ ACE — Vá ao Objetivo!".to_string(),
+                                        format!("5x0! Vá imediatamente ao {} — a janela fecha em segundos.", obj),
+                                    ));
+                                    println!("[Event] ACE pelo time do jogador → {}", obj);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    coach_state.last_processed_event_count = total_events;
                 }
             }
             // Herald desaparece definitivamente após 13:45 (825s)
@@ -647,19 +949,28 @@ pub(super) async fn handle_in_game_coaching(
                 coach_state.objective_ward_alerts.insert(alert_key);
 
                 // Tenta dados do DB; fallback para posições estáticas se não houver dados
-                let wards = if !db_key.is_empty() {
+                let mut wards = if !db_key.is_empty() {
                     let db_wards = db::coach_service::get_ward_suggestions_for_objective(
                         pool, db_key, role_for_runes,
                         obj.spawn, obj.x_min, obj.x_max, obj.y_min, obj.y_max,
                     ).await;
                     if db_wards.is_empty() {
-                        static_wards_for_objective(obj.key)
+                        static_wards_for_objective(obj.key, my_team_side)
                     } else {
+                        // Dados do DB são coordenadas absolutas de jogos reais (sem filtro de lado).
+                        // Para objetivos, ambos os times wardam a mesma área do pit — coords válidas para os dois.
                         db_wards
                     }
                 } else {
-                    static_wards_for_objective(obj.key)
+                    static_wards_for_objective(obj.key, my_team_side)
                 };
+                // Mantém só tantas pinks quanto o jogador tem no inventário
+                let pink_count = gs_inventory.iter().filter(|&&id| id == 2055).count();
+                let mut pinks_seen = 0usize;
+                wards.retain(|w| {
+                    if w.ward_type == "pink" { pinks_seen += 1; pinks_seen <= pink_count }
+                    else { true }
+                });
 
                 if !wards.is_empty() {
                     coach_state.last_ward_map_time = game_time;
@@ -690,7 +1001,7 @@ pub(super) async fn handle_in_game_coaching(
 
             if ward_due {
                 // Tenta DB primeiro; fallback estático por role se vazio
-                let wards = if !db_key.is_empty() {
+                let mut wards = if !db_key.is_empty() {
                     let db_wards = db::coach_service::get_ward_suggestions(
                         pool, db_key, role_for_runes, game_time
                     ).await;
@@ -698,15 +1009,30 @@ pub(super) async fn handle_in_game_coaching(
                         println!("[WardMap] DB vazio para {}/{} — usando fallback estático", db_key, role_for_runes);
                         static_wards_generic(role_for_runes, my_team_side)
                     } else {
-                        db_wards
+                        // Dados do DB são coordenadas absolutas sem filtro de lado (blue+red misturados).
+                        // Para red side, espelha as coordenadas (15000-x, 15000-y) para que os pontos
+                        // apareçam no lado correto do minimapa.
+                        if my_team_side == "red" {
+                            db_wards.into_iter().map(|mut w| { w.x = 15000 - w.x; w.y = 15000 - w.y; w }).collect()
+                        } else {
+                            db_wards
+                        }
                     }
                 } else {
                     println!("[WardMap] db_key vazio — usando fallback estático para role={} side={}", role_for_runes, my_team_side);
                     static_wards_generic(role_for_runes, my_team_side)
                 };
+                // Mantém só tantas pinks quanto o jogador tem no inventário
+                let pink_count = gs_inventory.iter().filter(|&&id| id == 2055).count();
+                let mut pinks_seen = 0usize;
+                wards.retain(|w| {
+                    if w.ward_type == "pink" { pinks_seen += 1; pinks_seen <= pink_count }
+                    else { true }
+                });
 
                 if !wards.is_empty() {
                     coach_state.last_ward_map_time = game_time;
+                    let w_count = wards.len();
                     let _ = handle.emit("update-ward-map", serde_json::json!({
                         "champion": champion_for_runes,
                         "role": role_for_runes,
@@ -717,7 +1043,7 @@ pub(super) async fn handle_in_game_coaching(
                         "display_secs": 8,
                     }));
                     println!("[WardMap] {} pontos emitidos para {}/{} em {:.0}s",
-                        wards.len(), champion_for_runes, role_for_runes, game_time);
+                        w_count, champion_for_runes, role_for_runes, game_time);
                 }
             }
         }

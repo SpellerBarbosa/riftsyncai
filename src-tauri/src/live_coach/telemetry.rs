@@ -82,8 +82,24 @@ pub fn update_enemy_telemetry(
                             let level_changed = curr_level != tel.last_level;
 
                             if health_changed || cs_changed || level_changed {
-                                let was_hidden = !tel.is_visible && tel.fog_duration >= 15.0;
                                 let previous_fog_duration = tel.fog_duration;
+
+                                // Limiar de névoa por role: junglers se movem rápido;
+                                // laners precisam de ausência longa para indicar rotação real.
+                                let fog_threshold = match tel.role.as_str() {
+                                    "JUNGLE"           => 10.0, // JG sai/entra rápido — 10s já é saída de rota
+                                    "TOP"              => 40.0, // Top demora muito para rotacionar
+                                    _                  => 30.0, // Mid, ADC, Support
+                                };
+
+                                // CS mudou sozinho (sem HP nem level) = farmando na rota = sem ameaça.
+                                // HP mudando junto indica combate/dano → pode ser movimento real.
+                                let only_farming = cs_changed && !health_changed && !level_changed;
+
+                                let was_hidden = !tel.is_visible
+                                    && tel.fog_duration >= fog_threshold
+                                    && !only_farming;
+
                                 if was_hidden {
                                     state.recent_enemy_sighting = Some((
                                         tel.champion_name.clone(),

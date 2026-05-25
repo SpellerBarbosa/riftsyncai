@@ -6,39 +6,60 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 
 const appWindow = getCurrentWindow();
 const version = ref('');
-const notes = ref('');
-const status = ref<'idle' | 'downloading' | 'animating'>('idle');
-const progress = ref(0);
+const status = ref<'idle' | 'downloading' | 'animating' | 'error'>('idle');
+const errorMsg = ref('');
+const downloadPct = ref(0);
+const hasTotal = ref(false);
+let accumulatedBytes = 0;
+let totalBytes = 0;
 let unlistenProgress: any = null;
 
+interface ReleaseChange {
+  type: 'novo' | 'melhoria' | 'fix';
+  text: string;
+}
+interface Release {
+  version: string;
+  date: string;
+  changes: ReleaseChange[];
+}
+
+const releases = ref<Release[]>([]);
+const currentRelease = ref<Release | null>(null);
+const previousReleases = ref<Release[]>([]);
+
 onMounted(async () => {
-  // Load data from localStorage
   const stored = localStorage.getItem('spellcoach_update_data');
   if (stored) {
     try {
       const parsed = JSON.parse(stored);
       version.value = parsed.version || '';
-      notes.value = parsed.notes || 'Pequenas correções e melhorias.';
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (_) {}
   }
 
-  // Listen to download progress
+  // Carrega changelog estruturado
+  try {
+    const res = await fetch('/releases.json');
+    if (res.ok) {
+      const data: Release[] = await res.json();
+      releases.value = data;
+      // Primeira entrada = versão atual do update; demais = histórico
+      if (data.length > 0) {
+        currentRelease.value = data[0];
+        previousReleases.value = data.slice(1);
+      }
+    }
+  } catch (_) {}
+
   unlistenProgress = await listen('update-progress', (event: any) => {
-    const { chunk, total } = event.payload;
-    if (total > 0) {
-      // Accumulate chunk over total since chunk is probably bytes downloaded so far,
-      // actually tauri updater provides downloaded bytes (chunk is current bytes, total is total)
-      // The payload structure is usually chunk = current downloaded length, but we can do a safe calc.
-      // Assuming event.payload.chunk is chunk size and we need to accumulate, or it is already downloaded size.
-      // Wait, in Rust we passed `chunk, total`. The updater callback gives `chunk_length, content_length`.
-      // We need to accumulate the chunks.
-      progress.value += chunk;
-      const pct = Math.min(100, Math.round((progress.value / total) * 100));
-      
-      // If it hits 100%, trigger the nexus animation!
-      if (pct >= 100 && status.value === 'downloading') {
+    const chunk: number = event.payload.chunk ?? 0;
+    const total: number | null = event.payload.total ?? null;
+    accumulatedBytes += chunk;
+    if (total && total > 0) {
+      hasTotal.value = true;
+      totalBytes = total;
+      downloadPct.value = Math.min(100, Math.round((accumulatedBytes / totalBytes) * 100));
+      if (downloadPct.value >= 100 && status.value === 'downloading') {
         triggerNexusExplosion();
       }
     }
@@ -49,46 +70,28 @@ onUnmounted(() => {
   if (unlistenProgress) unlistenProgress();
 });
 
-const closeWindow = () => {
-  appWindow.hide();
-};
+const closeWindow = () => appWindow.hide();
 
 const installUpdate = async () => {
   status.value = 'downloading';
-  progress.value = 0;
-  try {
-    // We invoke the command but don't await immediately to allow UI updates
-    invoke('download_and_install_update').catch(e => {
-      console.error('Update failed:', e);
-      status.value = 'idle';
-      alert("Falha ao atualizar: " + e);
-    });
-  } catch (e) {
-    console.error(e);
-  }
+  accumulatedBytes = 0;
+  totalBytes = 0;
+  downloadPct.value = 0;
+  hasTotal.value = false;
+  invoke('download_and_install_update').catch((e: any) => {
+    console.error('Update failed:', e);
+    errorMsg.value = String(e);
+    status.value = 'error';
+  });
 };
 
-const triggerNexusExplosion = () => {
-  status.value = 'animating';
-  // The animation CSS takes over. The Rust backend will restart the app after the install finishes.
-  // The install takes a few seconds, so the animation plays out while it finishes installing.
-};
+const triggerNexusExplosion = () => { status.value = 'animating'; };
 
-const formatNotes = (text: string) => {
-  // Simple markdown-ish to HTML for display
-  let html = text.replace(/\n/g, '<br/>');
-  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  return html;
-};
-
-// Calculate progress percentage for CSS width
-const progressPct = () => {
-  // Try to use a fake total if we don't know it, but usually total is known
-  // Here we just use the calculated % or a visual trick. Since we are accumulating chunk, 
-  // we actually need the total from the event. But wait, `chunk` in Rust is `chunk_length`.
-  // Let's use a dynamic width based on status if we don't have perfect total.
-  // But wait, the computed pct inside the listener updates the progress.
-  return status.value === 'downloading' ? 'loading' : '';
+const typeLabel: Record<string, string> = { novo: 'NOVO', melhoria: 'MELHORIA', fix: 'FIX' };
+const typeColor: Record<string, string> = {
+  novo:     '#4af076',
+  melhoria: '#4ab4f0',
+  fix:      '#f0a84a',
 };
 </script>
 
@@ -115,9 +118,45 @@ const progressPct = () => {
 
       <div class="changelog-box">
         <div class="changelog-header">
-          <span>📝 Notas de Atualização</span>
+          <span>📝 O que há de novo</span>
+          <span v-if="currentRelease" class="changelog-date">{{ currentRelease.date }}</span>
         </div>
-        <div class="changelog-content" v-html="formatNotes(notes)"></div>
+        <div class="changelog-content">
+          <!-- Versão atual -->
+          <template v-if="currentRelease">
+            <div
+              v-for="(change, i) in currentRelease.changes"
+              :key="i"
+              class="change-row"
+            >
+              <span
+                class="change-badge"
+                :style="{ color: typeColor[change.type], borderColor: typeColor[change.type] }"
+              >{{ typeLabel[change.type] }}</span>
+              <span class="change-text">{{ change.text }}</span>
+            </div>
+          </template>
+          <div v-else class="no-changes">Pequenas correções e melhorias.</div>
+
+          <!-- Histórico de versões anteriores -->
+          <template v-if="previousReleases.length">
+            <div class="history-divider">Versões anteriores</div>
+            <div v-for="rel in previousReleases" :key="rel.version" class="history-release">
+              <div class="history-version">v{{ rel.version }} <span class="history-date">{{ rel.date }}</span></div>
+              <div
+                v-for="(change, i) in rel.changes"
+                :key="i"
+                class="change-row change-row--dim"
+              >
+                <span
+                  class="change-badge change-badge--small"
+                  :style="{ color: typeColor[change.type], borderColor: typeColor[change.type] }"
+                >{{ typeLabel[change.type] }}</span>
+                <span class="change-text">{{ change.text }}</span>
+              </div>
+            </div>
+          </template>
+        </div>
       </div>
 
       <div class="actions">
@@ -128,12 +167,30 @@ const progressPct = () => {
             <span class="btn-glow"></span>
           </button>
         </template>
+
         <template v-else-if="status === 'downloading'">
           <div class="progress-container">
             <div class="progress-bar-wrapper">
-              <div class="progress-bar" :class="progressPct()"></div>
+              <!-- Barra determinada (quando servidor informa Content-Length) -->
+              <div
+                v-if="hasTotal"
+                class="progress-bar"
+                :style="{ width: downloadPct + '%' }"
+              ></div>
+              <!-- Barra indeterminada (sem Content-Length) -->
+              <div v-else class="progress-bar loading"></div>
             </div>
-            <span class="progress-text">Baixando recursos hextech...</span>
+            <span class="progress-text">
+              {{ hasTotal ? `Baixando... ${downloadPct}%` : 'Baixando recursos hextech...' }}
+            </span>
+          </div>
+        </template>
+
+        <template v-else-if="status === 'error'">
+          <div class="error-container">
+            <span class="error-icon">⚠️</span>
+            <span class="error-text">Falha ao atualizar: {{ errorMsg }}</span>
+            <button class="btn btn-secondary" style="margin-top:8px" @click="status = 'idle'">Tentar novamente</button>
           </div>
         </template>
       </div>
@@ -242,15 +299,73 @@ const progressPct = () => {
   color: #c8aa6e;
   text-transform: uppercase;
   letter-spacing: 1px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.changelog-date {
+  font-size: 10px;
+  color: #5b5a56;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
 }
 .changelog-content {
   flex: 1;
-  padding: 12px;
+  padding: 10px 12px;
   overflow-y: auto;
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 12px;
+  line-height: 1.5;
   color: #a09b8c;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }
+
+/* Linha de mudança */
+.change-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+.change-row--dim { opacity: 0.55; }
+.change-badge {
+  flex-shrink: 0;
+  font-size: 8px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border: 1px solid;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+  margin-top: 1px;
+}
+.change-badge--small { font-size: 7px; padding: 1px 4px; }
+.change-text { color: #c8b89a; font-size: 11px; line-height: 1.4; }
+
+/* Histórico */
+.history-divider {
+  margin: 10px 0 6px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #3a3a3a;
+  border-top: 1px solid #1a1a1a;
+  padding-top: 8px;
+}
+.history-release { margin-bottom: 8px; }
+.history-version {
+  font-size: 10px;
+  font-weight: 700;
+  color: #4a4a4a;
+  margin-bottom: 4px;
+}
+.history-date {
+  font-size: 9px;
+  font-weight: 400;
+  color: #333;
+  margin-left: 4px;
+}
+.no-changes { color: #5b5a56; font-size: 11px; padding: 4px 0; }
 
 /* Scrollbar para o changelog */
 .changelog-content::-webkit-scrollbar { width: 6px; }
@@ -353,6 +468,23 @@ const progressPct = () => {
   0% { opacity: 0.6; }
   50% { opacity: 1; }
   100% { opacity: 0.6; }
+}
+
+/* Erro */
+.error-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+}
+.error-icon { font-size: 20px; }
+.error-text {
+  font-size: 11px;
+  color: #ff6b6b;
+  text-align: center;
+  word-break: break-word;
 }
 
 /* =========================================================================

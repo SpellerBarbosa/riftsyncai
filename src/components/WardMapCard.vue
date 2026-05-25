@@ -5,9 +5,10 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 const hideWindow = () => getCurrentWindow().hide();
 
 interface WardPoint {
-  x: number;   // game coordinate 0–15000
-  y: number;   // game coordinate 0–15000
-  priority: number; // 1 (alta) – 5 (baixa)
+  x: number;         // game coordinate 0–15000
+  y: number;         // game coordinate 0–15000
+  priority: number;  // 1 (alta) – 5 (baixa)
+  ward_type: string; // "ward" | "pink"
 }
 
 const props = defineProps<{
@@ -43,10 +44,11 @@ const objectiveGamePos = computed(() => {
   }
 });
 
-const priorityColor = (p: number) => {
-  if (p <= 1) return "#f0e84a";
-  if (p <= 2) return "#4af076";
-  if (p <= 3) return "#4ab4f0";
+const wardColor = (w: WardPoint) => {
+  if (w.ward_type === "pink") return "#ff69b4";
+  if (w.priority <= 1) return "#f0e84a";
+  if (w.priority <= 2) return "#4af076";
+  if (w.priority <= 3) return "#4ab4f0";
   return "#c0c0c0";
 };
 
@@ -63,9 +65,9 @@ const minuteStr = computed(() => {
   return `${m}:${String(s).padStart(2, "0")}`;
 });
 
-// Suporte carrega mais visão; demais funções mostram apenas os 2 pontos mais estratégicos
+// Suporte pode ter 2 pinks → até 4 pontos. Outras roles: máximo 3.
 const topWards = computed(() => {
-  const limit = props.role?.toUpperCase() === 'SUPPORT' ? 6 : 2;
+  const limit = props.role?.toUpperCase() === "SUPPORT" ? 4 : 3;
   return props.wards.slice(0, limit);
 });
 
@@ -87,18 +89,26 @@ const urgencyColor = computed(() => {
 const spawningSoon = computed(() => (props.secondsToSpawn ?? 99) <= 10);
 
 // Descrição da posição de ward por índice (posições clássicas do LoL)
-function wardDesc(index: number, objective: string | undefined): string {
+function wardDesc(w: WardPoint, index: number, objective: string | undefined): string {
+  if (w.ward_type === "pink") return "🔮 Ward de Controle — visão permanente";
   if (objective) {
+    // index 0 = entrada aliada (prioridade), index 1 = entrada inimiga
+    const isRed = props.teamSide === "red";
     const descs: Record<string, string[]> = {
-      "Dragão":     ["Arbusto entrada azul", "Rio sul / entrada vermelha"],
-      "Barão":      ["Tri-bush entrada azul", "Rio lateral do Barão"],
-      "Arauto":     ["Tri-bush entrada azul", "Rio lateral do Arauto"],
-      "Aronguejo":  ["Arbusto rio bot",       "Arbusto rio top"],
+      "Dragão": isRed
+        ? ["Entrada aliada (sul)", "Entrada inimiga (norte)"]
+        : ["Entrada aliada (norte)", "Entrada inimiga (sul)"],
+      "Barão": isRed
+        ? ["Entrada aliada (leste)", "Tri-bush inimigo (oeste)"]
+        : ["Tri-bush aliado (oeste)", "Entrada inimiga (leste)"],
+      "Arauto": isRed
+        ? ["Entrada aliada (leste)", "Tri-bush inimigo (oeste)"]
+        : ["Tri-bush aliado (oeste)", "Entrada inimiga (leste)"],
+      "Aronguejo": ["Arbusto rio bot", "Arbusto rio top"],
     };
     return (descs[objective] ?? [])[index] ?? `Ponto ${index + 1}`;
   }
-  // Ward genérico — rótulos por prioridade
-  return index === 0 ? "★ Prioridade máxima" : index <= 1 ? "▲ Visão crítica" : "● Situacional";
+  return index === 0 ? "★ Prioridade máxima" : "▲ Visão crítica";
 }
 </script>
 
@@ -187,7 +197,7 @@ function wardDesc(index: number, objective: string | undefined): string {
             :cx="toMap(w.x, 'x')"
             :cy="toMap(w.y, 'y')"
             r="10"
-            :fill="priorityColor(w.priority)"
+            :fill="wardColor(w)"
             opacity="0.20"
           />
           <!-- Círculo principal -->
@@ -195,9 +205,20 @@ function wardDesc(index: number, objective: string | undefined): string {
             :cx="toMap(w.x, 'x')"
             :cy="toMap(w.y, 'y')"
             r="6"
-            :fill="priorityColor(w.priority)"
+            :fill="wardColor(w)"
             stroke="rgba(0,0,0,0.8)"
             stroke-width="1.5"
+          />
+          <!-- Pink ward: anel extra para destaque -->
+          <circle
+            v-if="w.ward_type === 'pink'"
+            :cx="toMap(w.x, 'x')"
+            :cy="toMap(w.y, 'y')"
+            r="9"
+            fill="none"
+            stroke="#ff69b4"
+            stroke-width="1"
+            opacity="0.6"
           />
           <!-- Número -->
           <text
@@ -222,11 +243,11 @@ function wardDesc(index: number, objective: string | undefined): string {
         :key="i"
         class="legend-row"
       >
-        <span class="legend-num" :style="{ background: priorityColor(w.priority) }">
+        <span class="legend-num" :style="{ background: wardColor(w) }">
           {{ i + 1 }}
         </span>
-        <span class="legend-desc">
-          {{ wardDesc(i, objective) }}
+        <span class="legend-desc" :style="w.ward_type === 'pink' ? { color: '#ff69b4' } : {}">
+          {{ wardDesc(w, i, objective) }}
         </span>
       </div>
     </div>

@@ -1,4 +1,4 @@
-use super::state::{CoachState, ActiveRec};
+﻿use super::state::{CoachState, ActiveRec};
 use super::micro_tip::{can_fire, var_idx};
 use crate::db::player_style_service::PlayerAggregateProfile;
 
@@ -19,26 +19,6 @@ pub fn get_dynamic_coaching_tip(
     let mana_current = lca_data["activePlayer"]["championStats"]["resourceValue"].as_f64().unwrap_or(100.0);
     let mana_max = lca_data["activePlayer"]["championStats"]["resourceMax"].as_f64().unwrap_or(100.0);
     let mana_perc = if mana_max > 0.0 { mana_current / mana_max } else { 1.0 };
-
-    let active_player_champ = {
-        let raw = lca_data["activePlayer"]["championName"].as_str().unwrap_or("");
-        if !raw.is_empty() {
-            raw.to_string()
-        } else {
-            let base = active_summ_name.split('#').next().unwrap_or(active_summ_name).to_lowercase();
-            lca_data["allPlayers"].as_array()
-                .and_then(|arr| arr.iter().find(|p| {
-                    let p_name = p["summonerName"].as_str().unwrap_or("");
-                    let p_base = p_name.split('#').next().unwrap_or(p_name).to_lowercase();
-                    p_name == active_summ_name || (!base.is_empty() && p_base == base)
-                }))
-                .and_then(|p| p["championName"].as_str())
-                .unwrap_or("")
-                .to_string()
-        }
-    };
-    let level = lca_data["activePlayer"]["level"].as_i64().unwrap_or(1);
-    let _ = level; // usado nas branches abaixo
 
     // --- ALERTAS DE RENASCIMENTO DE CAMPOS DA SELVA (JUNGLE RESPAWN WARNINGS) ---
     if role.to_uppercase() == "JUNGLE" {
@@ -142,7 +122,6 @@ pub fn get_dynamic_coaching_tip(
     let mut active_player_kills = 0;
     let mut active_player_cs = 0;
     let mut active_player_deaths = 0;
-    let mut active_player_champ = String::new();
     if let Some(players) = lca_data["allPlayers"].as_array() {
         for p in players {
             if p["summonerName"].as_str().unwrap_or("") == active_summ_name {
@@ -150,143 +129,42 @@ pub fn get_dynamic_coaching_tip(
                 active_player_kills = p["scores"]["kills"].as_i64().unwrap_or(0);
                 active_player_cs = p["scores"]["creepScore"].as_i64().unwrap_or(0);
                 active_player_deaths = p["scores"]["deaths"].as_i64().unwrap_or(0);
-                active_player_champ = p["championName"].as_str().unwrap_or("").to_string();
                 break;
             }
         }
     }
 
-    // --- ANIMATION CANCEL / MECANICA ESPECIFICA POR CAMPEÃO ---
-    if game_time >= 100.0 && !state.animation_cancel_suggested && !active_player_champ.is_empty() {
-        state.animation_cancel_suggested = true;
-        let (title, cancel_tip) = match active_player_champ.to_lowercase().as_str() {
-            "riven" => (
-                "Riven: Cancel de Q".to_string(),
-                "Ataca, Q na hora, move. Ataca de novo. Mantém esse loop o tempo todo.".to_string()
-            ),
-            "yasuo" => (
-                "Yasuo: E antes do Q".to_string(),
-                "Dasha no minion e usa Q na hora do impacto. O combo sai bem mais rápido.".to_string()
-            ),
-            "caitlyn" => (
-                "Caitlyn: Combo de posicionamento".to_string(),
-                "Dasha para trás, Q na hora, W no chão onde o inimigo vai parar.".to_string()
-            ),
-            "renekton" => (
-                "Renekton: W com fúria".to_string(),
-                "W com fúria pra stunar, Q ou E na hora. Não espera o stun acabar.".to_string()
-            ),
-            "leesin" | "lee sin" => (
-                "Lee Sin: Insec".to_string(),
-                "Q no alvo. Ward atrás dele. W no ward. R. Tem que ser bem rápido.".to_string()
-            ),
-            "vayne" => (
-                "Vayne: Q cancela animação".to_string(),
-                "Ataca, Q rente à parede, ataca de novo. O Q reseta o tempo entre autos.".to_string()
-            ),
-            "rengar" => (
-                "Rengar: Burst máximo".to_string(),
-                "Salta com quatro de fúria, Q no ar, W e E antes de pousar.".to_string()
-            ),
-            "aatrox" => (
-                "Aatrox: Ponta do Q".to_string(),
-                "E no meio do Q pra se reposicionar. A ponta causa muito mais dano.".to_string()
-            ),
-            "lucian" => (
-                "Lucian: Dois tiros sempre".to_string(),
-                "Habilidade, dois tiros, habilidade de novo. Cada skill reseta a passiva.".to_string()
-            ),
-            "alistar" => (
-                "Alistar: W-Q".to_string(),
-                "W no cara e Q logo antes de bater. Ele voa longe em vez de só cair.".to_string()
-            ),
-            "ezreal" => (
-                "Ezreal: Ulta e move".to_string(),
-                "Ulta e dasha imediatamente. O dano já foi, pode reposicionar à vontade.".to_string()
-            ),
-            _ => (
-                "Orbwalk".to_string(),
-                "Ataca, move logo depois, ataca de novo. Mais DPS sem ficar parado.".to_string()
-            )
-        };
-        return Some((title, cancel_tip));
-    }
 
-    // --- DICA DE VOLTA À BASE PERFEITA PARA CAMPEÕES DE ROTA ---
-    let is_lane_role = ["TOP", "MID", "MIDDLE", "ADC", "BOTTOM", "SUPPORT", "UTILITY"].contains(&role.to_uppercase().as_str());
-    if is_lane_role && game_time >= 210.0 && game_time < 300.0 && !state.recall_timing_suggested {
-        state.recall_timing_suggested = true;
-        return Some((
-            "🔄 Recall Perfeito".to_string(),
-            "Empurre a onda de canhão antes de voltar à base.".to_string()
-        ));
-    }
+    // --- DICA DE MACRO — 1 por role, no momento certo, uma vez por partida ---
 
-    // --- ROTAÇÃO E OBJETIVOS PARA MID ---
+    // MID: roaming e o conceito mais impactante que mid baixo ELO ignora
     let is_mid_role = ["MID", "MIDDLE"].contains(&role.to_uppercase().as_str());
     if is_mid_role && game_time >= 360.0 && game_time < 480.0 && !state.mid_roaming_suggested {
         state.mid_roaming_suggested = true;
         return Some((
-            "🗺️ Meio — Rotacione".to_string(),
-            "Avance a onda sob a torre antes de rotacionar ao objetivo.".to_string()
+            "\u{1F5FA} Meio — Hora de Rotar".to_string(),
+            "Avance a onda até a torre deles e rotacione — top para objetivo ou bot para Dragão.".to_string()
         ));
     }
 
-    // --- SUPORTE MACRO: CONTROLE DE ARBUSTO E VISÃO ---
+    // SUPPORT: dominar o arbusto é o principal diferencial de suportes iniciantes
     let is_sup_role = ["SUPPORT", "UTILITY"].contains(&role.to_uppercase().as_str());
-    if is_sup_role {
-        if game_time >= 120.0 && game_time < 200.0 && !state.sup_bush_dominance_suggested {
-            state.sup_bush_dominance_suggested = true;
-            return Some((
-                "🌿 Arbusto Lateral".to_string(),
-                "Domine o arbusto — pressão de zona e visão de emboscada.".to_string()
-            ));
-        }
-
-        if game_time >= 240.0 && game_time < 330.0 && !state.sup_river_vision_suggested {
-            state.sup_river_vision_suggested = true;
-            return Some((
-                "👁️ Controle do Rio".to_string(),
-                "Onda controlada — jogue pelo rio e colete informação.".to_string()
-            ));
-        }
+    if is_sup_role && game_time >= 120.0 && game_time < 200.0 && !state.sup_bush_dominance_suggested {
+        state.sup_bush_dominance_suggested = true;
+        return Some((
+            "\u{1F33F} Domine o Arbusto".to_string(),
+            "Entre no arbusto lateral — força o ADC inimigo a farmar sem visão e cria ameaça de emboscada.".to_string()
+        ));
     }
 
-    // --- TOPO MACRO: CONTROLE DE ONDA, VASTILARVAS, ARAUTO, TELEPORTE ---
-    let is_top_role = ["TOP"].contains(&role.to_uppercase().as_str());
-    if is_top_role {
-        if game_time >= 150.0 && game_time < 230.0 && !state.top_wave_control_suggested {
-            state.top_wave_control_suggested = true;
-            return Some((
-                "❄️ Congele a Onda".to_string(),
-                "Congele perto da torre — force exposição e crie emboscadas.".to_string()
-            ));
-        }
-
-        if game_time >= 270.0 && game_time < 305.0 && !state.top_grubs_priority_suggested {
-            state.top_grubs_priority_suggested = true;
-            return Some((
-                "🐛 Vastilarvas — 30s".to_string(),
-                "Vastilarvas em 30s — avance, dê prioridade ao caçador.".to_string()
-            ));
-        }
-
-        // Arauto do Vale nasce às 14:00 no jogo atual (Season 14/15 com Voidgrubs no slot de 5:00)
-        if game_time >= 825.0 && game_time < 860.0 && !state.top_herald_suggested {
-            state.top_herald_suggested = true;
-            return Some((
-                "🔮 Arauto — 15s".to_string(),
-                "Arauto em 15s — agrupe com o caçador agora.".to_string()
-            ));
-        }
-
-        if game_time >= 870.0 && game_time < 960.0 && !state.top_tp_management_suggested {
-            state.top_tp_management_suggested = true;
-            return Some((
-                "⚡ Gestão de Recurso".to_string(),
-                "Empurre a onda antes de sair. Preserve recurso global para objetivos.".to_string()
-            ));
-        }
+    // TOP: Vastilarvas são o objetivo mais ignorado por tops iniciantes
+    let is_top_role = role.to_uppercase() == "TOP";
+    if is_top_role && game_time >= 270.0 && game_time < 305.0 && !state.top_grubs_priority_suggested {
+        state.top_grubs_priority_suggested = true;
+        return Some((
+            "\u{1F41B} Avance Antes das Vastilarvas".to_string(),
+            "Vastilarvas em 30s — empurre a onda agora e vá com o caçador.".to_string()
+        ));
     }
 
     // 0. Gatilhos de Perigo Imediato (Vida, Mana, Ouro)
@@ -338,9 +216,9 @@ pub fn get_dynamic_coaching_tip(
         }
     }
 
-    // --- PERIODIC MINIMAP CHECK REMINDERS (a cada 120s, máx 4 por partida) ---
-    if game_time - state.last_minimap_time >= 120.0 && game_time > 90.0 {
-        if let Some(n) = can_fire(state, "MINIMAP", 7) {
+    // --- PERIODIC MINIMAP CHECK REMINDERS (a cada 3 min, máx 2 por partida) ---
+    if game_time - state.last_minimap_time >= 180.0 && game_time > 90.0 {
+        if let Some(n) = can_fire(state, "MINIMAP", 2) {
             state.last_minimap_time = game_time;
             let msgs = [
                 ("🗺️ Rastreie os Inimigos", "Onde estão os 5 inimigos? Sumiu = recue e jogue conservador."),
@@ -443,7 +321,7 @@ pub fn get_dynamic_coaching_tip(
     if !current_phase_id.is_empty() && state.last_phase != current_phase_id {
         state.last_phase = current_phase_id.clone();
         state.last_alert_time = game_time;
-    } else if game_time - state.last_alert_time >= 90.0 && can_fire(state, "ADV_CONTEXT", 12).is_some() {
+    } else if game_time - state.last_alert_time >= 120.0 && can_fire(state, "ADV_CONTEXT", 4).is_some() {
         state.last_alert_time = game_time;
 
         // --- ADVERSARIAL MATCHUP FEEDBACK (baseado em dados reais da tab) ---

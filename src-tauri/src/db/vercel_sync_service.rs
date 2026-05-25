@@ -414,8 +414,9 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
                                 .map(|v| serde_json::to_string(v).unwrap_or_default());
 
                             // meta runes: [primary_tree_id, keystone_id]
+                            // Filtra zeros — API pode retornar [0,0] quando sem dados reais.
                             let runes_json_str = cs.runes.as_ref()
-                                .filter(|r| r.len() >= 2)
+                                .filter(|r| r.len() >= 2 && r[0] > 0 && r[1] > 0)
                                 .map(|r| serde_json::to_string(&json!({
                                     "primary_tree": r[0], "secondary_tree": null,
                                     "runes": [r[1]], "shards": []

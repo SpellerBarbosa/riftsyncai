@@ -23,6 +23,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useVoiceCoach } from "./useVoiceCoach";
+import { useCoachSettings } from "./useCoachSettings";
 
 interface DismissCondition {
   type: 'fixed' | 'clear_step_gt' | 'level_gt' | 'game_time_gte' | 'inventory_change' | 'skill_leveled' | 'fallback';
@@ -120,7 +121,8 @@ const customizeTextWithNickname = (text: string, nickname: string, title: string
 };
 
 export function useSpellCoach() {
-  const { speak, stop: stopVoice, voiceEnabled, kokoroStatus } = useVoiceCoach();
+  const { speak, stop: stopVoice, voiceEnabled, kokoroStatus, checkKokoroStatus, cleanTextForSpeech, selectedVoice, voiceRate } = useVoiceCoach();
+  const { wardAlertsEnabled, skillTipsEnabled } = useCoachSettings();
 
   // ---------------------------------------------------------------------------
   // 1. ESTADO REATIVO (Reactive State)
@@ -183,7 +185,7 @@ export function useSpellCoach() {
     role: "MID",
     phase: "early",
     teamSide: "blue",
-    wards: [] as Array<{ x: number; y: number; priority: number }>,
+    wards: [] as Array<{ x: number; y: number; priority: number; ward_type: string }>,
     gameTime: 0,
     objective: "",        // "Dragão", "Barão", etc. — vazio = card genérico
     objectiveEmoji: "",   // "🐉", "💜", etc.
@@ -682,28 +684,7 @@ export function useSpellCoach() {
         await toggleRuneOverlay(false);
         await toggleFlashcard(false);
 
-        // Se Groq estiver ativo, dispara dicas periódicas via Groq in-game (a cada 60s)
-        // substituindo completamente as dicas procedurais do Rust bridge.
-        if (groqEnabled.value) {
-          console.log('[App.vue] Groq ativo — iniciando ciclo de dicas in-game via Groq (60s).');
-          // Primeira dica logo ao entrar no jogo (após 10s para estabilizar)
-          groqGameStartTimeout = setTimeout(() => {
-            groqGameStartTimeout = null;
-            const stillInGame = gameFlowState.value === 'GAME' || gameFlowState.value === 'INGAME';
-            if (activeChampion.value && stillInGame) {
-              lastAutoTacticalTipChamp.value = null;
-              fetchAndShowTacticalTips();
-            }
-          }, 10000);
-          // Intervalo recorrente a cada 60s
-          groqInGameInterval = setInterval(() => {
-            const stillInGame = gameFlowState.value === 'GAME' || gameFlowState.value === 'INGAME';
-            if (activeChampion.value && stillInGame) {
-              lastAutoTacticalTipChamp.value = null;
-              fetchAndShowTacticalTips();
-            }
-          }, 60000);
-        }
+        // Groq in-game é acionado por eventos (morte, início de partida) — sem timer periódico.
       }
 
       // Quando sai do jogo: cancela timers, limpa fila e fecha flashcards pendentes
@@ -842,39 +823,108 @@ export function useSpellCoach() {
       backText: customizedBackText
     });
 
+    // ── Aguarda a API de voz ficar pronta (quando voz está habilitada) ─────
+    // Regra: o card NUNCA aparece sem áudio enquanto a voz estiver ativada.
+    // Exceção única: o usuário desligar a voz nas configurações durante a espera.
+    // Timeout de 20s → descarta a dica sem exibir (não mostra card sem áudio).
+    if (voiceEnabled.value && kokoroStatus.value !== 'ready') {
+      console.log('[useSpellCoach] Voz habilitada, aguardando API de áudio...', kokoroStatus.value);
+      const VOICE_WAIT_MS = 20_000;
+      const deadline = Date.now() + VOICE_WAIT_MS;
+      let waitResult: 'ready' | 'disabled' | 'timeout' = 'timeout';
+      let lastStatusRetry = 0;
+
+      while (Date.now() < deadline) {
+        await new Promise<void>(r => setTimeout(r, 500));
+
+        // Emergência ou jungle-clear superaram esta dica enquanto aguardávamos
+        if (tipSessionId !== mySessionId) {
+          console.log('[useSpellCoach] Dica', nextTip.title, 'supersedida durante espera de voz.');
+          return; // mutex já foi transferido para a nova cadeia
+        }
+
+        if (!voiceEnabled.value) {
+          waitResult = 'disabled'; // usuário desligou voz — mostra card sem áudio
+          break;
+        }
+        if (kokoroStatus.value === 'ready') {
+          waitResult = 'ready';   // API pronta — mostra card com áudio
+          break;
+        }
+
+        // Retenta o health check a cada 5s durante a espera (HF Space pode acordar neste intervalo)
+        const now = Date.now();
+        if (now - lastStatusRetry >= 5000) {
+          lastStatusRetry = now;
+          checkKokoroStatus();
+        }
+      }
+
+      if (waitResult === 'timeout') {
+        // API indisponível após 20s — descarta a dica silenciosamente
+        console.log('[useSpellCoach] API de voz indisponível após 20s — descartando:', nextTip.title);
+        isProcessingTip = false;
+        if (tipQueue.value.length > 0) showNextTip();
+        return;
+      }
+      // 'ready' → segue para o path com voz
+      // 'disabled' → segue para o path sem voz (usuário desligou explicitamente)
+    }
+
     // ── Verifica se voz está disponível ────────────────────────────────────
     // voiceActive=true  → card aparece junto com o speak; fecha quando o áudio terminar.
-    // voiceActive=false → card aparece imediatamente; fecha por timer (comportamento padrão).
+    // voiceActive=false → card aparece imediatamente; fecha por timer (só se voz desligada).
     const voiceActive = voiceEnabled.value && kokoroStatus.value === 'ready';
     const dismiss = nextTip.dismiss;
 
     if (voiceActive) {
       // ── MODO VOZ ATIVA ────────────────────────────────────────────────────
-      // speak() invoca o Rust de forma bloqueante — a Promise só resolve quando o
-      // áudio termina completamente. Abrimos o card em paralelo ao início do speak.
+      // O card só abre quando o áudio realmente começa a tocar (evento Rust
+      // voice-playback-started). Isso elimina o silêncio durante a geração da API.
+      // O listener é registrado ANTES do speak() para não perder o evento em cache hits.
+      let audioActuallyStarted = false;
+      let resolveAudioStarted!: () => void;
+      const audioStartedPromise = new Promise<void>(r => { resolveAudioStarted = r; });
+      const unlistenAudio = await listen("voice-playback-started", () => {
+        audioActuallyStarted = true;
+        resolveAudioStarted();
+      });
+
+      const speakPromise = speak(customizedBackText);
+
+      // Aguarda o áudio começar OU o speak terminar/falhar (o que vier primeiro)
+      await Promise.race([audioStartedPromise, speakPromise]);
+      unlistenAudio();
+
+      if (!audioActuallyStarted) {
+        // speak() terminou sem o áudio iniciar (erro de API) — descarta sem mostrar card
+        stopVoice();
+        if (tipSessionId !== mySessionId) return;
+        isProcessingTip = false;
+        if (tipQueue.value.length > 0) showNextTip();
+        return;
+      }
+
+      // Áudio está tocando — abre o card agora
       await toggleFlashcard(true, true);
 
       if (dismiss && dismiss.type !== 'fallback') {
-        // Condição de dados (jungle clear, level-up, etc.):
-        // O áudio roda uma vez; o card permanece visível até a condição ser atingida.
-        await speak(customizedBackText);       // aguarda o áudio terminar
-        await waitForDismissSignal();          // aguarda condição de jogo
+        await speakPromise;
+        await waitForDismissSignal();
         stopVoice();
       } else if (dismiss?.type === 'fallback') {
-        // Fallback: fecha quando o áudio terminar; timer de segurança como backup.
         const maxMs = dismiss.max_ms ?? 30000;
         const safetyTimer = setTimeout(() => triggerDismiss(), maxMs);
         await Promise.race([
-          speak(customizedBackText),           // fecha ao terminar o áudio
-          new Promise<void>(r => setTimeout(r, maxMs))  // ou no timeout máximo
+          speakPromise,
+          new Promise<void>(r => setTimeout(r, maxMs))
         ]);
         clearTimeout(safetyTimer);
-        triggerDismiss(); // resolve qualquer waitForDismissSignal pendente
+        triggerDismiss();
         stopVoice();
       } else {
-        // Sem condição de dismiss: fecha quando o áudio terminar, mínimo 3s de exibição.
         const minDisplay = new Promise<void>(r => setTimeout(r, 3000));
-        await Promise.all([speak(customizedBackText), minDisplay]);
+        await Promise.all([speakPromise, minDisplay]);
         stopVoice();
       }
     } else {
@@ -933,6 +983,22 @@ export function useSpellCoach() {
     };
 
     console.log('[useSpellCoach] Inserindo dica na fila de prioridades:', newQueuedTip.title, '| prioridade:', priority);
+
+    // Prefetch: gera e armazena o áudio em cache enquanto a dica aguarda na fila.
+    // Quando showNextTip() chamar speak(), o WAV já estará pronto → zero latência.
+    if (voiceEnabled.value && kokoroStatus.value === 'ready' && tip.backText) {
+      try {
+        const nick = getSummonerNickname(summonerName.value);
+        const prefetchText = cleanTextForSpeech(customizeTextWithNickname(tip.backText, nick, tip.title));
+        if (prefetchText) {
+          invoke("prefetch_voice", {
+            text: prefetchText,
+            voice: selectedVoice.value,
+            speed: voiceRate.value,
+          }).catch(() => {}); // fire-and-forget, falha silenciosa
+        }
+      } catch (_) {}
+    }
 
     if (!isProcessingTip) {
       // Mutex livre — reproduz imediatamente
@@ -1044,21 +1110,8 @@ export function useSpellCoach() {
           if (event.payload.championName) {
             activeChampion.value = event.payload.championName;
           }
-        } else if (gameFlowState.value === "INGAME" && event.payload.gameData) {
-          const gameData = event.payload.gameData;
-          const activeSumm: string = gameData.activePlayer?.summonerName || '';
-          const activeBase = activeSumm.split('#')[0]?.toLowerCase() || '';
-          // activePlayer.championName ausente em patches recentes — busca em allPlayers
-          let champ: string = gameData.activePlayer?.championName || '';
-          if (!champ && activeSumm) {
-            const match = (gameData.allPlayers as any[] | undefined)?.find((p: any) => {
-              const pName: string = p.summonerName || '';
-              const pBase = pName.split('#')[0]?.toLowerCase() || '';
-              return pName === activeSumm || (activeBase && pBase === activeBase);
-            });
-            champ = match?.championName || '';
-          }
-          if (champ) activeChampion.value = champ;
+        } else if (gameFlowState.value === "GAME" || gameFlowState.value === "INGAME") {
+          // Mantém o campeão definido no champ select — não limpa durante o jogo
         } else {
           activeChampion.value = null;
         }
@@ -1115,6 +1168,10 @@ export function useSpellCoach() {
       await listen("update-ward-map", async (event: any) => {
         const d = event.payload;
         if (!d || !d.wards?.length) return; // ignora eventos sem wards
+
+        // Ward map de pré-objetivo sempre passa; genérico/push só se alertas ligados
+        const isObjectiveWard = !!d.objective;
+        if (!isObjectiveWard && !wardAlertsEnabled.value) return;
 
         // Cancela o timer de fechamento anterior — evita que timers acumulados
         // fechem o mapa mais cedo do que o previsto pelo evento mais recente.
@@ -1237,12 +1294,15 @@ export function useSpellCoach() {
     // Apenas a janela principal (main) intercepta o evento bruto de dica do Rust e enfileira
     if (windowLabel.value === 'main') {
       await listen("update-flashcard-content", async (event: any) => {
-        // EXCLUSIVIDADE: se o Groq está configurado E ainda não foi esgotado, bloqueia procedural.
-        // Quando o Groq esgota tokens/rate-limit, groqExhausted vira true e as dicas
-        // procedurais do Rust bridge são liberadas automaticamente como fallback.
         const isInGame = gameFlowState.value === 'GAME' || gameFlowState.value === 'INGAME';
+        const isSkillTip = event.payload?.category === "skill";
+
+        // Skill tips são time-sensitive — passam sempre, independente do Groq
+        if (isSkillTip && !skillTipsEnabled.value) return;
+
+        // Groq bloqueia procedural genérico, mas não skill tips
         const groqBlockingProcedural = groqEnabled.value && !groqExhausted.value;
-        if (groqBlockingProcedural && isInGame) return;
+        if (groqBlockingProcedural && isInGame && !isSkillTip) return;
         if (event.payload) {
           await queueAndPlayTip({
             title: event.payload.title || "Dica do Coach",
@@ -1253,6 +1313,22 @@ export function useSpellCoach() {
             tipCategory: event.payload.tipCategory as string | undefined
           });
         }
+      });
+
+      // Groq in-game: acionado por eventos do Rust (morte, início de partida)
+      // Cooldown de 2 minutos entre chamadas para não saturar a API.
+      let lastGroqInGameMs = 0;
+      const GROQ_INGAME_COOLDOWN_MS = 120_000;
+      await listen("request-groq-tip", () => {
+        if (!groqEnabled.value || groqExhausted.value) return;
+        const stillInGame = gameFlowState.value === 'GAME' || gameFlowState.value === 'INGAME';
+        if (!stillInGame || !activeChampion.value) return;
+        const now = Date.now();
+        if (now - lastGroqInGameMs < GROQ_INGAME_COOLDOWN_MS) return;
+        lastGroqInGameMs = now;
+        lastAutoTacticalTipChamp.value = null;
+        fetchAndShowTacticalTips();
+        console.log('[Groq] Tip disparada por evento in-game');
       });
 
       // Escuta o estado do jogo a cada tick (2s) — verifica se a dica ativa deve fechar.
