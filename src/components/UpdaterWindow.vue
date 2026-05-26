@@ -270,7 +270,6 @@ const typeColor: Record<string, string> = {
   display: flex;
   flex-direction: column;
   padding: 24px;
-  overflow: hidden;
   transition: opacity 0.5s ease;
 }
 
@@ -355,6 +354,7 @@ const typeColor: Record<string, string> = {
 }
 .changelog-content {
   flex: 1;
+  min-height: 0;
   padding: 10px 12px;
   overflow-y: auto;
   font-size: 12px;
@@ -419,7 +419,8 @@ const typeColor: Record<string, string> = {
 .actions {
   display: flex;
   gap: 12px;
-  margin-top: auto;
+  flex-shrink: 0;
+  padding-top: 4px;
 }
 .btn {
   flex: 1;
