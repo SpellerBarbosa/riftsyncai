@@ -662,7 +662,15 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
             }
 
             // Wards: apex tiers combinados (CHALLENGER+GRANDMASTER+MASTER) via API
-            // Armazenado como 'HIGH_ELO' para desacoplar do ELO específico
+            // Armazenado como 'HIGH_ELO' para desacoplar do ELO específico.
+            // Converte role do formato Riot (UTILITY/BOTTOM/MIDDLE) para o formato LCU
+            // (SUPPORT/ADC/MID) que é o que get_ward_suggestions usa durante o jogo.
+            let db_role = match role.as_str() {
+                "UTILITY" => "SUPPORT",
+                "BOTTOM"  => "ADC",
+                "MIDDLE"  => "MID",
+                r         => r,
+            };
             let wards = d.wards.as_deref().unwrap_or(&[]);
             let valid_wards: Vec<(i64, i64)> = wards.iter()
                 .filter_map(|w| Some((w.x? as i64, w.y? as i64)))
@@ -671,17 +679,17 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
             if !valid_wards.is_empty() {
                 let _ = sqlx::query(
                     "DELETE FROM ward_heatmaps WHERE champion_id = ? AND role = ? AND elo = 'HIGH_ELO'"
-                ).bind(slug).bind(role).execute(&mut *tx).await;
+                ).bind(slug).bind(db_role).execute(&mut *tx).await;
 
                 let placeholders = valid_wards.iter()
                     .map(|_| "(?, ?, 'HIGH_ELO', ?, ?)").collect::<Vec<_>>().join(",");
                 let q = format!("INSERT INTO ward_heatmaps (champion_id, role, elo, x_coord, y_coord) VALUES {}", placeholders);
                 let mut query = sqlx::query(&q);
                 for (x, y) in &valid_wards {
-                    query = query.bind(slug).bind(role).bind(x).bind(y);
+                    query = query.bind(slug).bind(db_role).bind(x).bind(y);
                 }
                 if let Err(e) = query.execute(&mut *tx).await {
-                    eprintln!("[Sync] ward_heatmaps insert error ({}:{}): {}", slug, role, e);
+                    eprintln!("[Sync] ward_heatmaps insert error ({}:{}): {}", slug, db_role, e);
                 }
             }
         } // for detail_results
