@@ -1,0 +1,60 @@
+[
+  {
+    "version": "0.2.25",
+    "date": "2026-05-26",
+    "changes": [
+      { "type": "novo",     "text": "Ward map indica 2 locais de ward verde + 1 local de ward de controle (pink) por campeão e role" },
+      { "type": "melhoria", "text": "Tipo de ward salvo individualmente — dados sincronizados diferenciam stealth vs controle" },
+      { "type": "fix",      "text": "Heatmap de wards no dashboard da API agora exibe os dados corretamente" }
+    ]
+  },
+  {
+    "version": "0.2.24",
+    "date": "2026-05-24",
+    "changes": [
+      { "type": "novo",     "text": "Tela de atualização customizada com animação do nexus" },
+      { "type": "novo",     "text": "Prefetch de áudio ao enfileirar dica para playback instantâneo" },
+      { "type": "melhoria", "text": "Ward map com suporte completo ao red side — coordenadas e prioridade invertidas" },
+      { "type": "fix",      "text": "Runas: secondary_tree_id corrigido para evitar mismatch na página de runas" },
+      { "type": "fix",      "text": "Sync: filtro de coordenadas zeradas para não sobrescrever dados válidos" }
+    ]
+  },
+  {
+    "version": "0.2.23",
+    "date": "2026-05-24",
+    "changes": [
+      { "type": "novo",     "text": "Ward map baseado na role — posições específicas por campeão e lado do mapa" },
+      { "type": "novo",     "text": "Suporte vê até 2 wards de controle no mapa (outros roles: 1)" },
+      { "type": "novo",     "text": "Ward de controle só aparece se você tiver o item no inventário" },
+      { "type": "novo",     "text": "Ward map automático ao matar o inimigo de rota (janela de push)" },
+      { "type": "novo",     "text": "Configurações: desligar alertas de ward geral e dicas de habilidade" },
+      { "type": "novo",     "text": "Groq acionado por eventos reais (morte, início de partida) em vez de timer" },
+      { "type": "melhoria", "text": "Dicas de habilidade usam a ordem exata do banco para cada campeão" },
+      { "type": "melhoria", "text": "Level up simplificado: mensagem direta 'Upe o Q'" },
+      { "type": "melhoria", "text": "Skill tips passam sempre, mesmo com Groq ativo" },
+      { "type": "melhoria", "text": "Alertas de inimigo visto filtrados — ignora quando volta à própria rota" },
+      { "type": "melhoria", "text": "Alerta de oportunidade de objetivo quando 2+ inimigos morrem juntos" },
+      { "type": "fix",      "text": "Ward map agora mostra exatamente 3 pontos (nunca mais, nunca menos)" }
+    ]
+  },
+  {
+    "version": "0.2.21",
+    "date": "2026-05-10",
+    "changes": [
+      { "type": "novo",     "text": "Migração para RiftSync API — vozes neurais de alta qualidade" },
+      { "type": "novo",     "text": "Seleção de voz nas configurações (Francisca, Antônio, Sky, Adam)" },
+      { "type": "melhoria", "text": "Card de voz aparece apenas quando o áudio da API está disponível" },
+      { "type": "fix",      "text": "Forçar lang pt-BR para vozes portuguesas no Kokoro" }
+    ]
+  },
+  {
+    "version": "0.2.20",
+    "date": "2026-04-28",
+    "changes": [
+      { "type": "novo",     "text": "Ward map com minimap real do Summoner's Rift" },
+      { "type": "novo",     "text": "Alertas de pré-objetivo 60s antes do spawn (Dragão, Barão, Arauto)" },
+      { "type": "novo",     "text": "Telemetria de inimigos — rastreia posição e tempo na névoa" },
+      { "type": "melhoria", "text": "Dicas baseadas em eventos do LCA (ChampionKill, Ace, DragonKill)" }
+    ]
+  }
+]
