@@ -1,5 +1,12 @@
 [
   {
+    "version": "0.2.28",
+    "date": "2026-05-26",
+    "changes": [
+      { "type": "fix", "text": "Botões de atualização sempre visíveis — layout usa 100vw/100vh independente da altura do pai" }
+    ]
+  },
+  {
     "version": "0.2.27",
     "date": "2026-05-26",
     "changes": [

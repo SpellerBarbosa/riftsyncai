@@ -243,15 +243,13 @@ const typeColor: Record<string, string> = {
 
 <style scoped>
 .updater-container {
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100vh;
   background: rgba(4, 15, 26, 0.95);
   border: 1px solid #c8aa6e;
   border-radius: 8px;
   overflow: hidden;
   position: relative;
-  display: flex;
-  flex-direction: column;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color: #f0e6d2;
   box-shadow: 0 0 30px rgba(0, 0, 0, 0.8), inset 0 0 20px rgba(200, 170, 110, 0.1);
@@ -266,12 +264,11 @@ const typeColor: Record<string, string> = {
 }
 
 .updater-content {
-  position: relative;
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
   z-index: 1;
   display: flex;
   flex-direction: column;
-  height: 100%;
-  min-height: 0;
   padding: 24px;
   overflow: hidden;
   transition: opacity 0.5s ease;
