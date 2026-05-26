@@ -271,7 +271,9 @@ const typeColor: Record<string, string> = {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   padding: 24px;
+  overflow: hidden;
   transition: opacity 0.5s ease;
 }
 
@@ -325,6 +327,7 @@ const typeColor: Record<string, string> = {
 /* Changelog */
 .changelog-box {
   flex: 1;
+  min-height: 0;
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid rgba(200, 170, 110, 0.3);
   border-radius: 6px;
