@@ -94,6 +94,7 @@ pub async fn create_tables(pool: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
     // O sistema atual usa 'HIGH_ELO' (Challenger+GM+Master combinados).
     // Renomeia os registros antigos para que as queries existentes os encontrem.
     let _ = sqlx::query("UPDATE ward_heatmaps SET elo = 'HIGH_ELO' WHERE elo = 'DIAMOND'").execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE ward_heatmaps ADD COLUMN ward_type TEXT NOT NULL DEFAULT 'YELLOW_TRINKET'").execute(pool).await;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS matches (

@@ -95,6 +95,8 @@ pub struct ApiChampionDetails {
 
 #[derive(Debug, Deserialize)]
 pub struct WardCoord {
+    #[serde(rename = "type")]
+    pub ward_type: Option<String>,
     pub x: Option<f64>,
     pub y: Option<f64>,
 }
@@ -672,8 +674,12 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
                 r         => r,
             };
             let wards = d.wards.as_deref().unwrap_or(&[]);
-            let valid_wards: Vec<(i64, i64)> = wards.iter()
-                .filter_map(|w| Some((w.x? as i64, w.y? as i64)))
+            let valid_wards: Vec<(i64, i64, String)> = wards.iter()
+                .filter_map(|w| Some((
+                    w.x? as i64,
+                    w.y? as i64,
+                    w.ward_type.clone().unwrap_or_else(|| "YELLOW_TRINKET".to_string()),
+                )))
                 .collect();
 
             if !valid_wards.is_empty() {
@@ -682,11 +688,11 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
                 ).bind(slug).bind(db_role).execute(&mut *tx).await;
 
                 let placeholders = valid_wards.iter()
-                    .map(|_| "(?, ?, 'HIGH_ELO', ?, ?)").collect::<Vec<_>>().join(",");
-                let q = format!("INSERT INTO ward_heatmaps (champion_id, role, elo, x_coord, y_coord) VALUES {}", placeholders);
+                    .map(|_| "(?, ?, 'HIGH_ELO', ?, ?, ?)").collect::<Vec<_>>().join(",");
+                let q = format!("INSERT INTO ward_heatmaps (champion_id, role, elo, x_coord, y_coord, ward_type) VALUES {}", placeholders);
                 let mut query = sqlx::query(&q);
-                for (x, y) in &valid_wards {
-                    query = query.bind(slug).bind(db_role).bind(x).bind(y);
+                for (x, y, wtype) in &valid_wards {
+                    query = query.bind(slug).bind(db_role).bind(x).bind(y).bind(wtype);
                 }
                 if let Err(e) = query.execute(&mut *tx).await {
                     eprintln!("[Sync] ward_heatmaps insert error ({}:{}): {}", slug, db_role, e);

@@ -728,32 +728,64 @@ pub async fn get_ward_suggestions(
     let window_ms_max = ((game_time_secs + 180.0) * 1000.0) as i64;
 
     type Row = (i64, i64, i64);
-    let rows: Vec<Row> = sqlx::query_as::<_, Row>(
+
+    // Top 2 stealth wards (YELLOW_TRINKET / SIGHT_WARD)
+    let mut green = sqlx::query_as::<_, Row>(
         "SELECT (x_coord/700)*700+350 AS bx, (y_coord/700)*700+350 AS by, COUNT(*) AS cnt
          FROM ward_heatmaps
          WHERE champion_id=? AND role=? AND elo='HIGH_ELO'
+           AND ward_type != 'CONTROL_WARD'
            AND (placed_at_ms IS NULL OR placed_at_ms BETWEEN ? AND ?)
-         GROUP BY bx, by ORDER BY cnt DESC LIMIT 8"
+         GROUP BY bx, by ORDER BY cnt DESC LIMIT 2"
     )
     .bind(champion_id).bind(role).bind(window_ms_min).bind(window_ms_max)
     .fetch_all(pool).await.unwrap_or_default();
 
-    let rows = if rows.is_empty() {
-        sqlx::query_as::<_, Row>(
+    if green.is_empty() {
+        green = sqlx::query_as::<_, Row>(
             "SELECT (x_coord/700)*700+350 AS bx, (y_coord/700)*700+350 AS by, COUNT(*) AS cnt
              FROM ward_heatmaps
-             WHERE champion_id=? AND role=? AND elo='HIGH_ELO'
-             GROUP BY bx, by ORDER BY cnt DESC LIMIT 8"
+             WHERE champion_id=? AND role=? AND elo='HIGH_ELO' AND ward_type != 'CONTROL_WARD'
+             GROUP BY bx, by ORDER BY cnt DESC LIMIT 2"
         )
         .bind(champion_id).bind(role)
-        .fetch_all(pool).await.unwrap_or_default()
-    } else { rows };
+        .fetch_all(pool).await.unwrap_or_default();
+    }
 
-    let max_cnt = rows.first().map(|(_, _, c)| *c).unwrap_or(1).max(1);
-    rows.into_iter().enumerate().map(|(i, (x, y, cnt))| {
-        let priority = (5 - (cnt * 4 / max_cnt).min(4)) as i32;
-        WardPoint { x, y, priority: (priority.max(1) + i as i32 / 3).min(5), ward_type: "ward".to_string() }
-    }).collect()
+    // Top 1 pink ward (CONTROL_WARD)
+    let mut pink = sqlx::query_as::<_, Row>(
+        "SELECT (x_coord/700)*700+350 AS bx, (y_coord/700)*700+350 AS by, COUNT(*) AS cnt
+         FROM ward_heatmaps
+         WHERE champion_id=? AND role=? AND elo='HIGH_ELO'
+           AND ward_type = 'CONTROL_WARD'
+           AND (placed_at_ms IS NULL OR placed_at_ms BETWEEN ? AND ?)
+         GROUP BY bx, by ORDER BY cnt DESC LIMIT 1"
+    )
+    .bind(champion_id).bind(role).bind(window_ms_min).bind(window_ms_max)
+    .fetch_all(pool).await.unwrap_or_default();
+
+    if pink.is_empty() {
+        pink = sqlx::query_as::<_, Row>(
+            "SELECT (x_coord/700)*700+350 AS bx, (y_coord/700)*700+350 AS by, COUNT(*) AS cnt
+             FROM ward_heatmaps
+             WHERE champion_id=? AND role=? AND elo='HIGH_ELO' AND ward_type = 'CONTROL_WARD'
+             GROUP BY bx, by ORDER BY cnt DESC LIMIT 1"
+        )
+        .bind(champion_id).bind(role)
+        .fetch_all(pool).await.unwrap_or_default();
+    }
+
+    let max_green = green.first().map(|(_, _, c)| *c).unwrap_or(1).max(1);
+    let mut result: Vec<WardPoint> = green.into_iter().enumerate().map(|(i, (x, y, cnt))| {
+        let priority = (5 - (cnt * 4 / max_green).min(4)) as i32;
+        WardPoint { x, y, priority: priority.max(1).min(5), ward_type: "ward".to_string() }
+    }).collect();
+
+    for (x, y, _) in pink {
+        result.push(WardPoint { x, y, priority: 1, ward_type: "pink".to_string() });
+    }
+
+    result
 }
 
 /// Retorna pontos de ward relevantes para um objetivo neutro específico.
@@ -774,37 +806,74 @@ pub async fn get_ward_suggestions_for_objective(
     let window_ms_max = ((objective_spawn_secs + 90.0) * 1000.0) as i64;
 
     type Row = (i64, i64, i64);
-    let rows: Vec<Row> = sqlx::query_as::<_, Row>(
+
+    // Top 2 stealth wards na área do objetivo
+    let mut green = sqlx::query_as::<_, Row>(
         "SELECT (x_coord/700)*700+350 AS bx, (y_coord/700)*700+350 AS by, COUNT(*) AS cnt
          FROM ward_heatmaps
          WHERE champion_id=? AND role=? AND elo='HIGH_ELO'
+           AND ward_type != 'CONTROL_WARD'
            AND (placed_at_ms IS NULL OR placed_at_ms BETWEEN ? AND ?)
            AND x_coord BETWEEN ? AND ? AND y_coord BETWEEN ? AND ?
-         GROUP BY bx, by ORDER BY cnt DESC LIMIT 8"
+         GROUP BY bx, by ORDER BY cnt DESC LIMIT 2"
     )
     .bind(champion_id).bind(role)
     .bind(window_ms_min).bind(window_ms_max)
     .bind(x_min).bind(x_max).bind(y_min).bind(y_max)
     .fetch_all(pool).await.unwrap_or_default();
 
-    let source = if rows.is_empty() {
-        sqlx::query_as::<_, Row>(
+    if green.is_empty() {
+        green = sqlx::query_as::<_, Row>(
             "SELECT (x_coord/700)*700+350 AS bx, (y_coord/700)*700+350 AS by, COUNT(*) AS cnt
              FROM ward_heatmaps
-             WHERE champion_id=? AND role=? AND elo='HIGH_ELO'
+             WHERE champion_id=? AND role=? AND elo='HIGH_ELO' AND ward_type != 'CONTROL_WARD'
                AND (placed_at_ms IS NULL OR placed_at_ms BETWEEN ? AND ?)
-             GROUP BY bx, by ORDER BY cnt DESC LIMIT 8"
+             GROUP BY bx, by ORDER BY cnt DESC LIMIT 2"
         )
         .bind(champion_id).bind(role)
         .bind(window_ms_min).bind(window_ms_max)
-        .fetch_all(pool).await.unwrap_or_default()
-    } else { rows };
+        .fetch_all(pool).await.unwrap_or_default();
+    }
 
-    let max_cnt = source.first().map(|(_, _, c)| *c).unwrap_or(1).max(1);
-    source.into_iter().enumerate().map(|(i, (x, y, cnt))| {
-        let priority = (5 - (cnt * 4 / max_cnt).min(4)) as i32;
+    // Top 1 pink na área do objetivo
+    let mut pink = sqlx::query_as::<_, Row>(
+        "SELECT (x_coord/700)*700+350 AS bx, (y_coord/700)*700+350 AS by, COUNT(*) AS cnt
+         FROM ward_heatmaps
+         WHERE champion_id=? AND role=? AND elo='HIGH_ELO'
+           AND ward_type = 'CONTROL_WARD'
+           AND (placed_at_ms IS NULL OR placed_at_ms BETWEEN ? AND ?)
+           AND x_coord BETWEEN ? AND ? AND y_coord BETWEEN ? AND ?
+         GROUP BY bx, by ORDER BY cnt DESC LIMIT 1"
+    )
+    .bind(champion_id).bind(role)
+    .bind(window_ms_min).bind(window_ms_max)
+    .bind(x_min).bind(x_max).bind(y_min).bind(y_max)
+    .fetch_all(pool).await.unwrap_or_default();
+
+    if pink.is_empty() {
+        pink = sqlx::query_as::<_, Row>(
+            "SELECT (x_coord/700)*700+350 AS bx, (y_coord/700)*700+350 AS by, COUNT(*) AS cnt
+             FROM ward_heatmaps
+             WHERE champion_id=? AND role=? AND elo='HIGH_ELO' AND ward_type = 'CONTROL_WARD'
+               AND (placed_at_ms IS NULL OR placed_at_ms BETWEEN ? AND ?)
+             GROUP BY bx, by ORDER BY cnt DESC LIMIT 1"
+        )
+        .bind(champion_id).bind(role)
+        .bind(window_ms_min).bind(window_ms_max)
+        .fetch_all(pool).await.unwrap_or_default();
+    }
+
+    let max_green = green.first().map(|(_, _, c)| *c).unwrap_or(1).max(1);
+    let mut result: Vec<WardPoint> = green.into_iter().enumerate().map(|(i, (x, y, cnt))| {
+        let priority = (5 - (cnt * 4 / max_green).min(4)) as i32;
         WardPoint { x, y, priority: (priority.max(1) + i as i32 / 3).min(5), ward_type: "ward".to_string() }
-    }).collect()
+    }).collect();
+
+    for (x, y, _) in pink {
+        result.push(WardPoint { x, y, priority: 1, ward_type: "pink".to_string() });
+    }
+
+    result
 }
 
 pub async fn get_matchup_difficulty(
