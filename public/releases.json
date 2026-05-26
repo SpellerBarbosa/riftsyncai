@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.2.27",
+    "date": "2026-05-26",
+    "changes": [
+      { "type": "fix",      "text": "Botões da tela de atualização ficavam escondidos abaixo do changelog" },
+      { "type": "fix",      "text": "Estouradas e chiadas no áudio corrigidas — desalinhamento de bytes PCM entre chunks HTTP" },
+      { "type": "fix",      "text": "Tela de atualização ocupava metade da janela com metade transparente" },
+      { "type": "melhoria", "text": "Instalação silenciosa diretamente na tela de atualização — sem abrir instalador externo" },
+      { "type": "melhoria", "text": "Changelog da atualização agora exibe as mudanças da versão nova sendo instalada" }
+    ]
+  },
+  {
     "version": "0.2.26",
     "date": "2026-05-26",
     "changes": [
