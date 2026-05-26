@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 const appWindow = getCurrentWindow();
 const version = ref('');
+const rawNotes = ref('');
 const status = ref<'idle' | 'downloading' | 'animating' | 'error'>('idle');
 const errorMsg = ref('');
 const downloadPct = ref(0);
@@ -13,6 +14,7 @@ const hasTotal = ref(false);
 let accumulatedBytes = 0;
 let totalBytes = 0;
 let unlistenProgress: any = null;
+let unlistenInstalling: any = null;
 
 interface ReleaseChange {
   type: 'novo' | 'melhoria' | 'fix';
@@ -24,9 +26,50 @@ interface Release {
   changes: ReleaseChange[];
 }
 
-const releases = ref<Release[]>([]);
 const currentRelease = ref<Release | null>(null);
 const previousReleases = ref<Release[]>([]);
+
+// Linhas do campo notes do manifesto, usadas como fallback quando a versão
+// nova não está no releases.json do app instalado.
+const notesFallbackLines = computed(() =>
+  rawNotes.value
+    .split('\n')
+    .map(l => l.replace(/^[-*•]\s*/, '').trim())
+    .filter(l => l.length > 0)
+);
+
+async function loadChangelog(targetVersion: string) {
+  let data: Release[] | null = null;
+
+  // Tenta buscar o releases.json remoto (sempre tem a versão nova já commitada)
+  try {
+    const remote = await fetch(
+      'https://raw.githubusercontent.com/SpellerBarbosa/riftsyncai/main/public/releases.json',
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (remote.ok) data = await remote.json();
+  } catch (_) {}
+
+  // Fallback: arquivo local empacotado com o app
+  if (!data) {
+    try {
+      const local = await fetch('/releases.json');
+      if (local.ok) data = await local.json();
+    } catch (_) {}
+  }
+
+  if (!data || data.length === 0) return;
+
+  // Prioriza a entrada que bate com a versão que está sendo instalada
+  const idx = targetVersion
+    ? data.findIndex(r => r.version === targetVersion)
+    : -1;
+
+  currentRelease.value = idx >= 0 ? data[idx] : data[0];
+  previousReleases.value = data
+    .filter(r => r.version !== currentRelease.value?.version)
+    .slice(0, 4);
+}
 
 onMounted(async () => {
   const stored = localStorage.getItem('spellcoach_update_data');
@@ -34,22 +77,11 @@ onMounted(async () => {
     try {
       const parsed = JSON.parse(stored);
       version.value = parsed.version || '';
+      rawNotes.value = parsed.notes || '';
     } catch (_) {}
   }
 
-  // Carrega changelog estruturado
-  try {
-    const res = await fetch('/releases.json');
-    if (res.ok) {
-      const data: Release[] = await res.json();
-      releases.value = data;
-      // Primeira entrada = versão atual do update; demais = histórico
-      if (data.length > 0) {
-        currentRelease.value = data[0];
-        previousReleases.value = data.slice(1);
-      }
-    }
-  } catch (_) {}
+  await loadChangelog(version.value);
 
   unlistenProgress = await listen('update-progress', (event: any) => {
     const chunk: number = event.payload.chunk ?? 0;
@@ -58,16 +90,19 @@ onMounted(async () => {
     if (total && total > 0) {
       hasTotal.value = true;
       totalBytes = total;
-      downloadPct.value = Math.min(100, Math.round((accumulatedBytes / totalBytes) * 100));
-      if (downloadPct.value >= 100 && status.value === 'downloading') {
-        triggerNexusExplosion();
-      }
+      downloadPct.value = Math.min(99, Math.round((accumulatedBytes / totalBytes) * 100));
     }
+  });
+
+  unlistenInstalling = await listen('update-installing', () => {
+    downloadPct.value = 100;
+    triggerNexusExplosion();
   });
 });
 
 onUnmounted(() => {
   if (unlistenProgress) unlistenProgress();
+  if (unlistenInstalling) unlistenInstalling();
 });
 
 const closeWindow = () => appWindow.hide();
@@ -105,6 +140,7 @@ const typeColor: Record<string, string> = {
       <div class="nexus-shockwave"></div>
       <div class="nexus-particles"></div>
       <div class="nexus-flash"></div>
+      <div class="nexus-installing-text">Instalando nova versão...</div>
     </div>
 
     <div class="updater-content" :class="{ 'fade-out': status === 'animating' }">
@@ -122,7 +158,7 @@ const typeColor: Record<string, string> = {
           <span v-if="currentRelease" class="changelog-date">{{ currentRelease.date }}</span>
         </div>
         <div class="changelog-content">
-          <!-- Versão atual -->
+          <!-- Versão atual: changelog estruturado do releases.json -->
           <template v-if="currentRelease">
             <div
               v-for="(change, i) in currentRelease.changes"
@@ -134,6 +170,13 @@ const typeColor: Record<string, string> = {
                 :style="{ color: typeColor[change.type], borderColor: typeColor[change.type] }"
               >{{ typeLabel[change.type] }}</span>
               <span class="change-text">{{ change.text }}</span>
+            </div>
+          </template>
+          <!-- Fallback: notas brutas do manifesto de atualização -->
+          <template v-else-if="notesFallbackLines.length">
+            <div v-for="(line, i) in notesFallbackLines" :key="i" class="change-row">
+              <span class="change-badge" :style="{ color: '#a09b8c', borderColor: '#a09b8c' }">•</span>
+              <span class="change-text">{{ line }}</span>
             </div>
           </template>
           <div v-else class="no-changes">Pequenas correções e melhorias.</div>
@@ -554,5 +597,19 @@ const typeColor: Record<string, string> = {
   55% { opacity: 1; }
   80% { opacity: 1; }
   100% { opacity: 0; }
+}
+
+.nexus-installing-text {
+  position: absolute;
+  bottom: 60px;
+  left: 0; right: 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #4ab4f0;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  animation: pulseText 1s infinite;
+  text-shadow: 0 0 10px rgba(74, 180, 240, 0.8);
 }
 </style>

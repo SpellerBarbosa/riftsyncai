@@ -26,6 +26,7 @@ async fn download_and_install_update(app: tauri::AppHandle) -> Result<(), String
         Some(update) => {
             println!("[Updater] Baixando versão {}...", update.version);
             let handle_for_progress = app.clone();
+            let handle_for_install = app.clone();
             update
                 .download_and_install(
                     move |chunk, total| {
@@ -34,8 +35,9 @@ async fn download_and_install_update(app: tauri::AppHandle) -> Result<(), String
                             "total": total
                         }));
                     },
-                    || {
-                        println!("[Updater] Download concluído, instalando...");
+                    move || {
+                        println!("[Updater] Download concluído, instalando silenciosamente...");
+                        let _ = handle_for_install.emit("update-installing", serde_json::json!({}));
                     }
                 )
                 .await

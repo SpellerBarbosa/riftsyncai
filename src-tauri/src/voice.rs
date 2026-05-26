@@ -459,6 +459,10 @@ pub(crate) async fn play_voice(
     let mut header_buf = Vec::<u8>::with_capacity(44);
     let mut header_done = false;
     let mut all_bytes = Vec::<u8>::new();
+    // Carry-over when an HTTP chunk boundary splits a 2-byte PCM sample.
+    // Without this, chunks_exact(2) drops the odd byte and the next chunk
+    // starts misaligned, producing clicks and pops on every chunk boundary.
+    let mut odd_byte: Option<u8> = None;
 
     while let Some(result) = body.next().await {
         let chunk = result.map_err(|e| format!("Erro no stream de áudio: {}", e))?;
@@ -481,8 +485,23 @@ pub(crate) async fn play_voice(
         };
 
         if let Some(bytes) = pcm {
-            if !bytes.is_empty() {
-                let samples = s16le_to_f32(&bytes);
+            // Prepend carry-over byte from previous chunk to restore alignment
+            let mut aligned = if let Some(lo) = odd_byte.take() {
+                let mut b = Vec::with_capacity(bytes.len() + 1);
+                b.push(lo);
+                b.extend_from_slice(&bytes);
+                b
+            } else {
+                bytes
+            };
+
+            // If still odd, save last byte for next chunk instead of dropping it
+            if aligned.len() % 2 != 0 {
+                odd_byte = aligned.pop();
+            }
+
+            if !aligned.is_empty() {
+                let samples = s16le_to_f32(&aligned);
                 if chunk_tx.send(Some(samples)).is_err() {
                     break; // audio thread stopped (e.g. stop_voice called)
                 }
