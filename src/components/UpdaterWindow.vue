@@ -248,7 +248,7 @@ const typeColor: Record<string, string> = {
   background: rgba(4, 15, 26, 0.95);
   border: 1px solid #c8aa6e;
   border-radius: 8px;
-  overflow: hidden;
+  overflow: auto;
   position: relative;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color: #f0e6d2;
