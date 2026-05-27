@@ -267,8 +267,8 @@ const typeColor: Record<string, string> = {
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
   z-index: 1;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
   padding: 24px;
   transition: opacity 0.5s ease;
 }
@@ -280,7 +280,6 @@ const typeColor: Record<string, string> = {
 
 /* Header */
 .header {
-  flex-shrink: 0;
   text-align: center;
   margin-bottom: 20px;
 }
@@ -323,16 +322,14 @@ const typeColor: Record<string, string> = {
 
 /* Changelog */
 .changelog-box {
-  flex: 1;
   min-height: 0;
-  max-height: calc(100vh - 260px);
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid rgba(200, 170, 110, 0.3);
   border-radius: 6px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 .changelog-header {
   padding: 8px 12px;
@@ -421,8 +418,6 @@ const typeColor: Record<string, string> = {
 .actions {
   display: flex;
   gap: 12px;
-  flex-shrink: 0;
-  padding-top: 4px;
 }
 .btn {
   flex: 1;
