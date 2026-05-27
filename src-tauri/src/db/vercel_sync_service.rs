@@ -220,14 +220,15 @@ async fn fetch_json<T: for<'de> Deserialize<'de>>(
                                 }
                                 return Some(data);
                             }
-                            Err(_) => {
+                            Err(e) => {
                                 // Body inválido: pode ser cold start real
                                 if status.as_u16() == 404 {
                                     println!("[Sync] 404 — endpoint não existe: {}", url);
                                     return None;
                                 }
+                                let preview = &body[..body.len().min(300)];
+                                eprintln!("[Sync] PARSE ERROR tentativa {}/5: {} | body: {}", attempt, e, preview);
                                 if attempt < 5 {
-                                    println!("[Sync] HTTP {} body inválido, tentativa {}/5: {}", status, attempt, url);
                                     let delay = SERVER_ERROR_DELAYS[(attempt as usize - 1).min(SERVER_ERROR_DELAYS.len() - 1)];
                                     tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                                 }
@@ -306,7 +307,17 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
                 .header("x-api-key", &warmup_token)
                 .send().await
             {
-                Ok(r) if r.status().is_success() || r.status().as_u16() == 401 => {
+                Ok(r) if r.status().is_success() => {
+                    // Detecta mock mode: banco indisponível no servidor
+                    if let Ok(body) = r.text().await {
+                        if body.contains("mock_mode_active") {
+                            return Err("API em modo mock — banco de dados indisponível no servidor (Supabase pausado ou DATABASE_URL não configurada no Vercel).".to_string());
+                        }
+                    }
+                    warmed = true;
+                    break;
+                }
+                Ok(r) if r.status().as_u16() == 401 => {
                     warmed = true;
                     break;
                 }
@@ -896,7 +907,12 @@ pub async fn sync_vercel_command(
     state: State<'_, crate::db::DbState>,
     app: AppHandle,
 ) -> Result<(), String> {
-    sync_vercel_data(&state.0, Some(&app)).await
+    let result = sync_vercel_data(&state.0, Some(&app)).await;
+    if let Err(ref e) = result {
+        eprintln!("[Sync] ERRO: {}", e);
+        emit(Some(&app), 0, &format!("Erro: {}", e), false);
+    }
+    result
 }
 
 /// Força sincronização ignorando o cache de 2h — útil para diagnóstico e após updates.
@@ -910,7 +926,12 @@ pub async fn force_sync_vercel_command(
         .await
         .map_err(|e| e.to_string())?;
     println!("[Sync] Cache invalidado — forçando sincronização completa.");
-    sync_vercel_data(&state.0, Some(&app)).await
+    let result = sync_vercel_data(&state.0, Some(&app)).await;
+    if let Err(ref e) = result {
+        eprintln!("[Sync] ERRO: {}", e);
+        emit(Some(&app), 0, &format!("Erro: {}", e), false);
+    }
+    result
 }
 
 /// Retorna um resumo de quantos registros existem no banco por ELO e tabela.

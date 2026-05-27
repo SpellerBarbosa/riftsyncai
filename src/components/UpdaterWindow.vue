@@ -48,14 +48,14 @@ async function loadChangelog(targetVersion: string) {
       { signal: AbortSignal.timeout(5000) }
     );
     if (remote.ok) data = await remote.json();
-  } catch (_) {}
+  } catch (_) { }
 
   // Fallback: arquivo local empacotado com o app
   if (!data) {
     try {
       const local = await fetch('/releases.json');
       if (local.ok) data = await local.json();
-    } catch (_) {}
+    } catch (_) { }
   }
 
   if (!data || data.length === 0) return;
@@ -78,7 +78,7 @@ onMounted(async () => {
       const parsed = JSON.parse(stored);
       version.value = parsed.version || '';
       rawNotes.value = parsed.notes || '';
-    } catch (_) {}
+    } catch (_) { }
   }
 
   await loadChangelog(version.value);
@@ -124,9 +124,9 @@ const triggerNexusExplosion = () => { status.value = 'animating'; };
 
 const typeLabel: Record<string, string> = { novo: 'NOVO', melhoria: 'MELHORIA', fix: 'FIX' };
 const typeColor: Record<string, string> = {
-  novo:     '#4af076',
+  novo: '#4af076',
   melhoria: '#4ab4f0',
-  fix:      '#f0a84a',
+  fix: '#f0a84a',
 };
 </script>
 
@@ -160,15 +160,10 @@ const typeColor: Record<string, string> = {
         <div class="changelog-content">
           <!-- Versão atual: changelog estruturado do releases.json -->
           <template v-if="currentRelease">
-            <div
-              v-for="(change, i) in currentRelease.changes"
-              :key="i"
-              class="change-row"
-            >
-              <span
-                class="change-badge"
-                :style="{ color: typeColor[change.type], borderColor: typeColor[change.type] }"
-              >{{ typeLabel[change.type] }}</span>
+            <div v-for="(change, i) in currentRelease.changes" :key="i" class="change-row">
+              <span class="change-badge"
+                :style="{ color: typeColor[change.type], borderColor: typeColor[change.type] }">{{
+                  typeLabel[change.type] }}</span>
               <span class="change-text">{{ change.text }}</span>
             </div>
           </template>
@@ -186,15 +181,10 @@ const typeColor: Record<string, string> = {
             <div class="history-divider">Versões anteriores</div>
             <div v-for="rel in previousReleases" :key="rel.version" class="history-release">
               <div class="history-version">v{{ rel.version }} <span class="history-date">{{ rel.date }}</span></div>
-              <div
-                v-for="(change, i) in rel.changes"
-                :key="i"
-                class="change-row change-row--dim"
-              >
-                <span
-                  class="change-badge change-badge--small"
-                  :style="{ color: typeColor[change.type], borderColor: typeColor[change.type] }"
-                >{{ typeLabel[change.type] }}</span>
+              <div v-for="(change, i) in rel.changes" :key="i" class="change-row change-row--dim">
+                <span class="change-badge change-badge--small"
+                  :style="{ color: typeColor[change.type], borderColor: typeColor[change.type] }">{{
+                    typeLabel[change.type] }}</span>
                 <span class="change-text">{{ change.text }}</span>
               </div>
             </div>
@@ -215,11 +205,7 @@ const typeColor: Record<string, string> = {
           <div class="progress-container">
             <div class="progress-bar-wrapper">
               <!-- Barra determinada (quando servidor informa Content-Length) -->
-              <div
-                v-if="hasTotal"
-                class="progress-bar"
-                :style="{ width: downloadPct + '%' }"
-              ></div>
+              <div v-if="hasTotal" class="progress-bar" :style="{ width: downloadPct + '%' }"></div>
               <!-- Barra indeterminada (sem Content-Length) -->
               <div v-else class="progress-bar loading"></div>
             </div>
@@ -254,18 +240,28 @@ const typeColor: Record<string, string> = {
   color: #f0e6d2;
   box-shadow: 0 0 30px rgba(0, 0, 0, 0.8), inset 0 0 20px rgba(200, 170, 110, 0.1);
   user-select: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-evenly;
 }
 
 .updater-bg {
   position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   background: radial-gradient(circle at top center, rgba(10, 36, 56, 0.8) 0%, rgba(1, 10, 19, 1) 100%);
   z-index: 0;
 }
 
 .updater-content {
   position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 1;
   display: grid;
   grid-template-rows: auto 1fr auto;
@@ -283,6 +279,7 @@ const typeColor: Record<string, string> = {
   text-align: center;
   margin-bottom: 20px;
 }
+
 .logo-box {
   width: 48px;
   height: 48px;
@@ -295,17 +292,23 @@ const typeColor: Record<string, string> = {
   box-shadow: 0 4px 15px rgba(200, 170, 110, 0.3);
   position: relative;
 }
+
 .logo-box::after {
   content: '';
   position: absolute;
-  top: 2px; left: 2px; right: 2px; bottom: 2px;
+  top: 2px;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 10px;
 }
+
 .logo-icon {
   font-size: 24px;
-  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
 }
+
 .title {
   font-size: 20px;
   font-weight: 700;
@@ -313,6 +316,7 @@ const typeColor: Record<string, string> = {
   margin: 0 0 4px;
   letter-spacing: 0.5px;
 }
+
 .subtitle {
   font-size: 14px;
   color: #4af0a0;
@@ -331,6 +335,7 @@ const typeColor: Record<string, string> = {
   overflow: hidden;
   margin-bottom: 16px;
 }
+
 .changelog-header {
   padding: 8px 12px;
   background: rgba(200, 170, 110, 0.1);
@@ -344,6 +349,7 @@ const typeColor: Record<string, string> = {
   justify-content: space-between;
   align-items: center;
 }
+
 .changelog-date {
   font-size: 10px;
   color: #5b5a56;
@@ -351,6 +357,7 @@ const typeColor: Record<string, string> = {
   text-transform: none;
   letter-spacing: 0;
 }
+
 .changelog-content {
   flex: 1;
   min-height: 0;
@@ -370,7 +377,11 @@ const typeColor: Record<string, string> = {
   align-items: flex-start;
   gap: 7px;
 }
-.change-row--dim { opacity: 0.55; }
+
+.change-row--dim {
+  opacity: 0.55;
+}
+
 .change-badge {
   flex-shrink: 0;
   font-size: 8px;
@@ -381,8 +392,17 @@ const typeColor: Record<string, string> = {
   letter-spacing: 0.5px;
   margin-top: 1px;
 }
-.change-badge--small { font-size: 7px; padding: 1px 4px; }
-.change-text { color: #c8b89a; font-size: 11px; line-height: 1.4; }
+
+.change-badge--small {
+  font-size: 7px;
+  padding: 1px 4px;
+}
+
+.change-text {
+  color: #c8b89a;
+  font-size: 11px;
+  line-height: 1.4;
+}
 
 /* Histórico */
 .history-divider {
@@ -394,31 +414,51 @@ const typeColor: Record<string, string> = {
   border-top: 1px solid #1a1a1a;
   padding-top: 8px;
 }
-.history-release { margin-bottom: 8px; }
+
+.history-release {
+  margin-bottom: 8px;
+}
+
 .history-version {
   font-size: 10px;
   font-weight: 700;
   color: #4a4a4a;
   margin-bottom: 4px;
 }
+
 .history-date {
   font-size: 9px;
   font-weight: 400;
   color: #333;
   margin-left: 4px;
 }
-.no-changes { color: #5b5a56; font-size: 11px; padding: 4px 0; }
+
+.no-changes {
+  color: #5b5a56;
+  font-size: 11px;
+  padding: 4px 0;
+}
 
 /* Scrollbar para o changelog */
-.changelog-content::-webkit-scrollbar { width: 6px; }
-.changelog-content::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
-.changelog-content::-webkit-scrollbar-thumb { background: #c8aa6e; border-radius: 3px; }
+.changelog-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.changelog-content::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.changelog-content::-webkit-scrollbar-thumb {
+  background: #c8aa6e;
+  border-radius: 3px;
+}
 
 /* Actions */
 .actions {
   display: flex;
   gap: 12px;
 }
+
 .btn {
   flex: 1;
   padding: 12px;
@@ -433,38 +473,54 @@ const typeColor: Record<string, string> = {
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
+
 .btn-secondary {
   background: transparent;
   border: 1px solid #5b5a56;
   color: #a09b8c;
 }
+
 .btn-secondary:hover {
   border-color: #c8aa6e;
   color: #f0e6d2;
   background: rgba(200, 170, 110, 0.1);
 }
+
 .btn-primary {
   background: linear-gradient(180deg, #1e282d 0%, #010a13 100%);
   border: 1px solid #c8aa6e;
   color: #f0e6d2;
   box-shadow: 0 0 10px rgba(200, 170, 110, 0.2);
 }
+
 .btn-primary:hover {
   background: linear-gradient(180deg, #2a373d 0%, #0a1929 100%);
   box-shadow: 0 0 15px rgba(200, 170, 110, 0.4);
 }
+
 .btn-glow {
   position: absolute;
-  top: 0; left: -100%;
-  width: 50%; height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
   transform: skewX(-20deg);
   animation: btnSweep 3s infinite;
 }
+
 @keyframes btnSweep {
-  0% { left: -100%; }
-  20% { left: 200%; }
-  100% { left: 200%; }
+  0% {
+    left: -100%;
+  }
+
+  20% {
+    left: 200%;
+  }
+
+  100% {
+    left: 200%;
+  }
 }
 
 /* Progress */
@@ -475,6 +531,7 @@ const typeColor: Record<string, string> = {
   align-items: center;
   gap: 10px;
 }
+
 .progress-bar-wrapper {
   width: 100%;
   height: 6px;
@@ -484,31 +541,49 @@ const typeColor: Record<string, string> = {
   overflow: hidden;
   position: relative;
 }
+
 .progress-bar {
   height: 100%;
   width: 0%;
   background: linear-gradient(90deg, #c8aa6e, #f0e84a);
   transition: width 0.2s linear;
 }
+
 .progress-bar.loading {
   width: 100%;
   background: linear-gradient(90deg, transparent, #c8aa6e, transparent);
   background-size: 200% 100%;
   animation: indeterminate 1.5s infinite linear;
 }
+
 @keyframes indeterminate {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
 }
+
 .progress-text {
   font-size: 12px;
   color: #a09b8c;
   animation: pulseText 1.5s infinite;
 }
+
 @keyframes pulseText {
-  0% { opacity: 0.6; }
-  50% { opacity: 1; }
-  100% { opacity: 0.6; }
+  0% {
+    opacity: 0.6;
+  }
+
+  50% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0.6;
+  }
 }
 
 /* Erro */
@@ -520,7 +595,11 @@ const typeColor: Record<string, string> = {
   gap: 6px;
   padding: 8px 0;
 }
-.error-icon { font-size: 20px; }
+
+.error-icon {
+  font-size: 20px;
+}
+
 .error-text {
   font-size: 11px;
   color: #ff6b6b;
@@ -533,7 +612,10 @@ const typeColor: Record<string, string> = {
    ========================================================================= */
 .nexus-explosion-overlay {
   position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 10;
   display: flex;
   align-items: center;
@@ -562,45 +644,111 @@ const typeColor: Record<string, string> = {
 
 .nexus-flash {
   position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   background: white;
   opacity: 0;
   animation: finalFlash 2.5s forwards;
 }
 
 @keyframes nexusFloat {
-  0% { transform: translateY(-5px); }
-  100% { transform: translateY(5px); }
+  0% {
+    transform: translateY(-5px);
+  }
+
+  100% {
+    transform: translateY(5px);
+  }
 }
 
 @keyframes nexusShatter {
-  0% { transform: scale(1) rotate(0deg); filter: brightness(1); opacity: 1; }
-  40% { transform: scale(1.2) rotate(5deg); filter: brightness(2); opacity: 1; }
-  45% { transform: scale(1.3) rotate(-5deg); filter: brightness(3); opacity: 1; }
-  50% { transform: scale(0) rotate(20deg); opacity: 0; }
-  100% { transform: scale(0); opacity: 0; }
+  0% {
+    transform: scale(1) rotate(0deg);
+    filter: brightness(1);
+    opacity: 1;
+  }
+
+  40% {
+    transform: scale(1.2) rotate(5deg);
+    filter: brightness(2);
+    opacity: 1;
+  }
+
+  45% {
+    transform: scale(1.3) rotate(-5deg);
+    filter: brightness(3);
+    opacity: 1;
+  }
+
+  50% {
+    transform: scale(0) rotate(20deg);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(0);
+    opacity: 0;
+  }
 }
 
 @keyframes shockwave {
-  0% { transform: scale(1); opacity: 0; }
-  49% { transform: scale(1); opacity: 0; }
-  50% { transform: scale(1); opacity: 1; border-width: 20px; }
-  70% { transform: scale(40); opacity: 0; border-width: 1px; }
-  100% { transform: scale(40); opacity: 0; }
+  0% {
+    transform: scale(1);
+    opacity: 0;
+  }
+
+  49% {
+    transform: scale(1);
+    opacity: 0;
+  }
+
+  50% {
+    transform: scale(1);
+    opacity: 1;
+    border-width: 20px;
+  }
+
+  70% {
+    transform: scale(40);
+    opacity: 0;
+    border-width: 1px;
+  }
+
+  100% {
+    transform: scale(40);
+    opacity: 0;
+  }
 }
 
 @keyframes finalFlash {
-  0% { opacity: 0; }
-  50% { opacity: 0; }
-  55% { opacity: 1; }
-  80% { opacity: 1; }
-  100% { opacity: 0; }
+  0% {
+    opacity: 0;
+  }
+
+  50% {
+    opacity: 0;
+  }
+
+  55% {
+    opacity: 1;
+  }
+
+  80% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
 }
 
 .nexus-installing-text {
   position: absolute;
   bottom: 60px;
-  left: 0; right: 0;
+  left: 0;
+  right: 0;
   text-align: center;
   font-size: 13px;
   font-weight: 700;
