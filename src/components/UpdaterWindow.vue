@@ -280,6 +280,7 @@ const typeColor: Record<string, string> = {
 
 /* Header */
 .header {
+  flex-shrink: 0;
   text-align: center;
   margin-bottom: 20px;
 }
@@ -324,6 +325,7 @@ const typeColor: Record<string, string> = {
 .changelog-box {
   flex: 1;
   min-height: 0;
+  max-height: calc(100vh - 260px);
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid rgba(200, 170, 110, 0.3);
   border-radius: 6px;
