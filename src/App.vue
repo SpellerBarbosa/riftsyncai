@@ -187,6 +187,6 @@ Usamos layouts Flexbox e CSS Grid para manter tudo 100% responsivo e otimizado.
 .ward-map-window { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: transparent !important; }
 .postgame-window { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: transparent !important; }
 .pregame-window { width: 100%; height: 100%; display: flex; align-items: flex-start; justify-content: flex-start; background: transparent !important; }
-.updater-window { width: 460px; height: 580px; }
+.updater-window { width: 460px; height: 580px; overflow: hidden; position: relative; }
 .fallback-debug { padding: 20px; background: rgba(0,0,0,0.8); color: white; border: 1px solid red; }
 </style>
