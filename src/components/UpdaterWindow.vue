@@ -229,21 +229,19 @@ const typeColor: Record<string, string> = {
 
 <style scoped>
 .updater-container {
-  width: 100vw;
-  height: 100vh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   background: rgba(4, 15, 26, 0.95);
   border: 1px solid #c8aa6e;
   border-radius: 8px;
-  overflow: auto;
-  position: relative;
+  overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color: #f0e6d2;
   box-shadow: 0 0 30px rgba(0, 0, 0, 0.8), inset 0 0 20px rgba(200, 170, 110, 0.1);
   user-select: none;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: space-evenly;
 }
 
 .updater-bg {
