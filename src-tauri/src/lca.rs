@@ -29,6 +29,7 @@ impl LcaConnection {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn is_alive(&self) -> bool {
         // LCA is only alive during a game. 
         // We use allgamedata as a health check.
@@ -36,6 +37,7 @@ impl LcaConnection {
     }
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn get_lca_status() -> String {
     let lca = LcaConnection::new();
@@ -52,12 +54,14 @@ pub async fn get_all_game_data() -> Result<Value, String> {
     lca.get("allgamedata").await.map_err(|e| e.to_string())
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn get_active_player() -> Result<Value, String> {
     let lca = LcaConnection::new();
     lca.get("activeplayer").await.map_err(|e| e.to_string())
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn get_player_list() -> Result<Value, String> {
     let lca = LcaConnection::new();

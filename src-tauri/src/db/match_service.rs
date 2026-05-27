@@ -27,6 +27,7 @@ pub async fn get_match(pool: &Pool<Sqlite>, match_id: &str) -> Result<Option<Val
     Ok(None)
 }
 
+#[allow(dead_code)]
 pub async fn get_unanalyzed_matches(pool: &Pool<Sqlite>) -> Result<Vec<String>, sqlx::Error> {
     let rows: Vec<(String,)> = sqlx::query_as("SELECT match_id FROM matches WHERE analyzed = 0")
         .fetch_all(pool)

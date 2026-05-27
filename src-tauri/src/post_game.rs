@@ -1,6 +1,6 @@
 use sqlx::{Pool, Sqlite};
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
 use std::sync::{Mutex, OnceLock};
 
 // Armazena o último relatório gerado — a janela post-game lê ao montar
@@ -101,8 +101,8 @@ pub async fn analyze_and_emit(
     let kills = player["kills"].as_f64().unwrap_or(0.0);
     let deaths = player["deaths"].as_f64().unwrap_or(1.0);
     let assists = player["assists"].as_f64().unwrap_or(0.0);
-    let cs = (player["totalMinionsKilled"].as_f64().unwrap_or(0.0)
-        + player["neutralMinionsKilled"].as_f64().unwrap_or(0.0));
+    let cs = player["totalMinionsKilled"].as_f64().unwrap_or(0.0)
+        + player["neutralMinionsKilled"].as_f64().unwrap_or(0.0);
     let vision = player["visionScore"].as_f64().unwrap_or(0.0);
     let duration_secs = match_data["info"]["gameDuration"].as_f64().unwrap_or(1.0);
     let duration_min = duration_secs / 60.0;

@@ -68,6 +68,7 @@ pub async fn get_champion_id_by_key(pool: &Pool<Sqlite>, key: i32) -> Result<Opt
 }
 
 /// Salva ou atualiza um registro de confronto direto no banco de dados.
+#[allow(dead_code)]
 pub async fn add_matchup(
     pool: &Pool<Sqlite>, 
     champ_id: &str, 
@@ -88,6 +89,7 @@ pub async fn add_matchup(
 }
 
 /// Obtém todas as builds registradas para um campeão.
+#[allow(dead_code)]
 pub async fn get_recommended_builds(pool: &Pool<Sqlite>, champ_id: &str) -> Result<Vec<RecommendedBuild>, sqlx::Error> {
     sqlx::query_as::<_, RecommendedBuild>(
         "SELECT * FROM recommended_builds WHERE champion_id = ?"
@@ -208,6 +210,7 @@ pub async fn get_recommended_builds_command(
 }
 
 /// Comando Tauri para atualizar manualmente builds meta específicas de campeões.
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn update_meta_build_command(
     state: State<'_, DbState>,
@@ -243,6 +246,7 @@ pub async fn get_db_champions(state: State<'_, DbState>) -> Result<Vec<Champion>
 }
 
 /// Coleta estatísticas consolidadas para sugestão de duelo na tela.
+#[allow(dead_code)]
 pub async fn get_coaching_suggestion(
     pool: &Pool<Sqlite>, 
     player_champ: &str, 
@@ -258,6 +262,7 @@ pub async fn get_coaching_suggestion(
 }
 
 /// Recomenda os dois melhores campeões recomendados para aquela role estatisticamente.
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn get_top_champions(state: State<'_, DbState>, role: String) -> Result<Vec<Champion>, String> {
     let pool = &state.0;
@@ -322,6 +327,7 @@ pub async fn get_top_champions(state: State<'_, DbState>, role: String) -> Resul
 }
 
 /// Comando Tauri para fornecer dados agregados rápidos simplificados da Tier List do Blitz.gg.
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn get_blitz_recommendations(role: String, rank: String) -> Result<serde_json::Value, String> {
     let _is_low_elo = rank.contains("BRONZE") || rank.contains("SILVER") || rank.contains("IRON");
@@ -776,7 +782,7 @@ pub async fn get_ward_suggestions(
     }
 
     let max_green = green.first().map(|(_, _, c)| *c).unwrap_or(1).max(1);
-    let mut result: Vec<WardPoint> = green.into_iter().enumerate().map(|(i, (x, y, cnt))| {
+    let mut result: Vec<WardPoint> = green.into_iter().enumerate().map(|(_i, (x, y, cnt))| {
         let priority = (5 - (cnt * 4 / max_green).min(4)) as i32;
         WardPoint { x, y, priority: priority.max(1).min(5), ward_type: "ward".to_string() }
     }).collect();

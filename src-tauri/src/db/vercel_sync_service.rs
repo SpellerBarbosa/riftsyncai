@@ -22,6 +22,7 @@ const MATCHUP_ELOS: &[&str]  = &["CHALLENGER", "GRANDMASTER", "MASTER", "DIAMOND
 
 // Peso de prioridade para queries de recomendação (menor = melhor).
 // Usado em ORDER BY para sempre servir o dado do elo mais alto disponível.
+#[allow(dead_code)]
 pub fn elo_priority_sql() -> &'static str {
     "CASE elo WHEN 'CHALLENGER' THEN 1 WHEN 'GRANDMASTER' THEN 2 WHEN 'MASTER' THEN 3 \
      WHEN 'DIAMOND' THEN 4 WHEN 'PLATINUM' THEN 5 WHEN 'GOLD' THEN 6 ELSE 7 END"
@@ -86,7 +87,7 @@ pub struct ApiChampionStats {
 #[serde(rename_all = "camelCase")]
 pub struct ApiChampionDetails {
     pub starting_items: Option<Vec<i64>>,
-    pub skill_order: Option<Vec<i32>>,
+    pub skill_order: Option<Vec<Option<i32>>>,
     pub jungle_path: Option<String>,
     pub runes: Option<Vec<i64>>,
     pub core_build: Option<Vec<i64>>,
@@ -613,9 +614,10 @@ pub async fn sync_vercel_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> R
             let starting  = d.starting_items.as_ref().filter(|v| !v.is_empty())
                 .map(|v| serde_json::to_string(v).unwrap_or_default());
             let spells: Option<String> = None;
-            let skill_ord = d.skill_order.as_ref().filter(|v| !v.is_empty())
+            let skill_ord = d.skill_order.as_ref()
+                .filter(|v| v.iter().any(|i| i.is_some()))
                 .map(|v| {
-                    let names: Vec<&str> = v.iter().map(|&i| match i {
+                    let names: Vec<&str> = v.iter().filter_map(|i| *i).map(|i| match i {
                         1 => "Q", 2 => "W", 3 => "E", 4 => "R", _ => "?"
                     }).collect();
                     serde_json::to_string(&names).unwrap_or_default()

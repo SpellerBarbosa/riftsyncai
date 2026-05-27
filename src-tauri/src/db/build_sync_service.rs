@@ -33,7 +33,7 @@ pub async fn sync_all_builds_from_ugg(pool: &Pool<Sqlite>, version: &str, app: O
     let client = reqwest::Client::new();
 
     // Use a stream with concurrency limit to speed up hydration
-    let results = futures_util::stream::iter(champions.into_iter().enumerate())
+    let _results = futures_util::stream::iter(champions.into_iter().enumerate())
         .map(|(i, champ)| {
             let client = client.clone();
             let pool = pool.clone();

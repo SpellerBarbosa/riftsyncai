@@ -181,6 +181,7 @@ pub async fn sync_recommended_builds(pool: &Pool<Sqlite>, champ_id: &str, data: 
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn hydrate_all_builds(pool: &Pool<Sqlite>, version: &str, lang: &str) -> Result<(), String> {
     // 0. Check if already hydrated for this version
     let sync_key = format!("hydration_done_{}", version);

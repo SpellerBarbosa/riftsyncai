@@ -212,6 +212,7 @@ pub async fn get_game_state_from_conn(conn: &LcuConnection) -> Result<GameState,
     }
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn get_game_state() -> Result<GameState, String> {
     let conn = LcuConnection::new().ok_or("League Client not found")?;

@@ -9,6 +9,7 @@ static SYSTEM_INSTANCE: OnceLock<Mutex<System>> = OnceLock::new();
 
 pub struct LcuConnection {
     pub port: String,
+    #[allow(dead_code)]
     pub token: String,
     pub client: Client,
 }
@@ -128,6 +129,7 @@ pub async fn get_current_summoner() -> Result<Value, String> {
         .map_err(|e| e.to_string())
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn get_user_rank() -> Result<Value, String> {
     let conn = LcuConnection::new().ok_or("League Client not found")?;

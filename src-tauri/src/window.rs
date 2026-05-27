@@ -1,5 +1,6 @@
 use tauri::Manager;
 
+#[allow(dead_code)]
 #[tauri::command]
 pub(crate) async fn get_monitor_dimensions(app: tauri::AppHandle) -> Result<(u32, u32), String> {
     let monitor = app
@@ -10,6 +11,7 @@ pub(crate) async fn get_monitor_dimensions(app: tauri::AppHandle) -> Result<(u32
     Ok((size.width, size.height))
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub(crate) async fn resize_main_window(app: tauri::AppHandle, expanded: bool) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {

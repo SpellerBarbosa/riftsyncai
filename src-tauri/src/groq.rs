@@ -47,6 +47,7 @@ pub async fn get_groq_settings(app: tauri::AppHandle) -> Result<GroqSettings, St
     Ok(GroqSettings { enabled, api_key, model })
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn set_groq_settings(
     app: tauri::AppHandle,
@@ -75,6 +76,7 @@ pub async fn set_groq_settings(
     Ok(())
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn test_groq_connection(api_key: String, model: String) -> Result<String, String> {
     let client = reqwest::Client::new();

@@ -99,6 +99,7 @@ pub async fn get_ddragon_champions(
     Ok(data)
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn get_ddragon_items(
     state: State<'_, crate::db::DbState>,
@@ -116,6 +117,7 @@ pub async fn get_ddragon_items(
     Ok(data)
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn get_ddragon_spells(
     _state: State<'_, crate::db::DbState>,
@@ -128,6 +130,7 @@ pub async fn get_ddragon_spells(
     Ok(data)
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn get_ddragon_champion_details(
     state: State<'_, crate::db::DbState>,
@@ -138,6 +141,7 @@ pub async fn get_ddragon_champion_details(
     get_ddragon_champion_details_internal(&state.0, &version, &lang, &champion_id).await
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn hydrate_builds(
     state: State<'_, crate::db::DbState>,

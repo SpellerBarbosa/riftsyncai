@@ -27,7 +27,7 @@ pub async fn sync_all_matchups(pool: &Pool<Sqlite>, version: &str, app: Option<&
     let total = champions.len();
     let client = reqwest::Client::new();
 
-    let results = futures_util::stream::iter(champions.into_iter().enumerate())
+    let _results = futures_util::stream::iter(champions.into_iter().enumerate())
         .map(|(i, champ)| {
             let client = client.clone();
             let pool = pool.clone();

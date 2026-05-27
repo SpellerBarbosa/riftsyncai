@@ -9,150 +9,55 @@ defineProps<{
 </script>
 
 <template>
-  <div class="tactical-card rarity-border" :class="rarity || 'common'">
-    <div class="card-header">
-      <div class="title-group">
-        <span class="label-mini">{{ title || 'DICA HEXTECH' }}</span>
-        <span class="focus-badge">{{ frontText }}</span>
+  <div class="w-[320px] min-h-[100px] flex flex-col p-2.5 rounded relative overflow-hidden shadow-[0_10px_30px_rgba(0,0,0,0.8)]"
+       :class="{
+         'border border-[rgba(120,90,40,0.5)] bg-gradient-to-br from-[#0a1428] to-[#010a13]': !rarity || rarity === 'common',
+         'border border-[rgba(0,90,130,0.8)] bg-gradient-to-br from-[#0a1428] to-[#010a13]': rarity === 'rare',
+         'border border-[#d000ff] bg-gradient-to-br from-[#0a1428] to-[#010a13]': rarity === 'epic',
+         'border border-[#ffcc00] bg-gradient-to-br from-[#0a1428] to-[#010a13] shadow-[inset_0_0_15px_rgba(255,204,0,0.1),0_5px_15px_rgba(0,0,0,0.5)]': rarity === 'legendary',
+       }">
+
+    <!-- Header -->
+    <div class="flex justify-between items-start mb-2 border-b border-[rgba(200,155,60,0.2)] pb-1.5">
+      <div class="flex flex-col gap-0.5">
+        <span class="text-[8px] font-extrabold text-[#a09b8c] tracking-[2px] uppercase">{{ title || 'DICA HEXTECH' }}</span>
+        <span class="text-[13px] font-black text-[#f0e6d2] [text-shadow:0_0_10px_rgba(255,255,255,0.3)]">{{ frontText }}</span>
       </div>
-      <div class="rarity-dot" :class="rarity"></div>
+      <div class="w-2 h-2 rounded-full mt-1 shrink-0"
+           :class="{
+             'bg-[#785a28]': !rarity || rarity === 'common',
+             'bg-[#005a82] shadow-[0_0_8px_#005a82]': rarity === 'rare',
+             'bg-[#d000ff] shadow-[0_0_8px_#d000ff]': rarity === 'epic',
+             'bg-[#ffcc00] shadow-[0_0_8px_#ffcc00]': rarity === 'legendary',
+           }"></div>
     </div>
-    
-    <div class="card-body">
-      <div v-if="imageUrl" class="card-image">
-        <img :src="imageUrl" alt="champion" />
+
+    <!-- Body -->
+    <div class="flex gap-3 flex-1">
+      <div v-if="imageUrl" class="w-[45px] h-[45px] border border-[rgba(200,155,60,0.3)] bg-black shrink-0 overflow-hidden">
+        <img :src="imageUrl" alt="champion" class="w-full h-full object-cover" />
       </div>
-      <div class="card-content">
-        <div class="reason-text" v-html="backText?.replace(/\n/g, '<br>')"></div>
+      <div class="flex-1 flex flex-col justify-center">
+        <div class="text-[11px] leading-[1.4] text-[#cdbe91] font-medium" v-html="backText?.replace(/\n/g, '<br>')"></div>
       </div>
     </div>
-    
-    <div class="card-footer">
-      <div class="scanline"></div>
+
+    <!-- Scanline footer -->
+    <div class="absolute bottom-0 left-0 w-full h-0.5 bg-[rgba(200,155,60,0.1)] overflow-hidden">
+      <div class="w-full h-full scanline"></div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.tactical-card {
-  width: 320px;
-  min-height: 100px;
-  background: linear-gradient(135deg, #0a1428 0%, #010a13 100%);
-  border: 1px solid var(--accent-gold);
-  border-radius: 4px;
-  display: flex;
-  flex-direction: column;
-  padding: 10px;
-  position: relative;
-  overflow: hidden;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.8);
-}
-
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 8px;
-  border-bottom: 1px solid rgba(200, 155, 60, 0.2);
-  padding-bottom: 6px;
-}
-
-.title-group {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.label-mini {
-  font-size: 8px;
-  font-weight: 800;
-  color: #a09b8c;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-}
-
-.focus-badge {
-  font-size: 13px;
-  font-weight: 900;
-  color: #f0e6d2;
-  text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
-}
-
-.rarity-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-top: 4px;
-}
-
-.rarity-dot.common { background: #785a28; }
-.rarity-dot.rare { background: #005a82; box-shadow: 0 0 8px #005a82; }
-.rarity-dot.epic { background: #d000ff; box-shadow: 0 0 8px #d000ff; }
-.rarity-dot.legendary { background: #ffcc00; box-shadow: 0 0 8px #ffcc00; }
-
-.card-body {
-  display: flex;
-  gap: 12px;
-  flex: 1;
-}
-
-.card-image {
-  width: 45px;
-  height: 45px;
-  border: 1px solid rgba(200, 155, 60, 0.3);
-  background: #000;
-  flex-shrink: 0;
-}
-
-.card-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.card-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-
-.reason-text {
-  font-size: 11px;
-  line-height: 1.4;
-  color: #cdbe91;
-  font-weight: 500;
-}
-
-.card-footer {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  background: rgba(200, 155, 60, 0.1);
-}
-
 .scanline {
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, var(--accent-gold), transparent);
+  background: linear-gradient(90deg, transparent, var(--accent-gold, #c89b3c), transparent);
   animation: scan 3s linear infinite;
-  will-change: transform; /* Força compositing na GPU, evita repaint da CPU */
-  transform: translateZ(0); /* Cria stacking context isolado */
+  will-change: transform;
+  transform: translateZ(0);
 }
-
 @keyframes scan {
   from { transform: translateX(-100%) translateZ(0); }
-  to { transform: translateX(100%) translateZ(0); }
-}
-
-/* Rarity Borders */
-.rarity-border.common { border-color: rgba(120, 90, 40, 0.5); }
-.rarity-border.rare { border-color: rgba(0, 90, 130, 0.8); }
-.rarity-border.epic { border-color: #d000ff; }
-.rarity-border.legendary { 
-  border-color: #ffcc00; 
-  box-shadow: inset 0 0 15px rgba(255, 204, 0, 0.1), 0 5px 15px rgba(0,0,0,0.5);
+  to   { transform: translateX(100%) translateZ(0); }
 }
 </style>

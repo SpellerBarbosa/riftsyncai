@@ -1,10 +1,10 @@
 use sqlx::{Pool, Sqlite};
 use reqwest::Client;
 use std::time::{SystemTime, UNIX_EPOCH};
-use serde_json::Value;
 use tauri::{AppHandle, Emitter, State};
 use regex::Regex;
 
+#[allow(dead_code)]
 pub async fn sync_blitz_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> Result<(), String> {
     println!("[MetaSRC] Iniciando sincronização via Web Scraping (Metasrc)...");
     
@@ -48,6 +48,7 @@ pub async fn sync_blitz_data(pool: &Pool<Sqlite>, app: Option<&AppHandle>) -> Re
     Ok(())
 }
 
+#[allow(dead_code)]
 async fn fetch_and_save_metasrc_tier_list(pool: &Pool<Sqlite>, client: &Client, elo: &str, role: &str) -> Result<(), String> {
     let url = format!("https://www.metasrc.com/lol/tier-list/{}?ranks={}", role, elo);
     
@@ -134,6 +135,7 @@ async fn fetch_and_save_metasrc_tier_list(pool: &Pool<Sqlite>, client: &Client, 
     Ok(())
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn sync_blitz_command(
     state: State<'_, crate::db::DbState>,

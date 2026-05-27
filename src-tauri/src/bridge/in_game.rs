@@ -159,7 +159,7 @@ pub(super) async fn handle_in_game_coaching(
     coach_state: &mut crate::live_coach::CoachState,
     last_tip_emit_time: &mut f64,
     cached_profile: Option<&crate::db::player_style_service::PlayerAggregateProfile>,
-    elo: &str,
+    _elo: &str,
 ) {
     if let Some(state) = handle.try_state::<db::DbState>() {
         let pool = &state.0;
@@ -323,11 +323,11 @@ pub(super) async fn handle_in_game_coaching(
             let gold = lca_data["activePlayer"]["currentGold"].as_f64().unwrap_or(0.0);
             let hp_current = lca_data["activePlayer"]["championStats"]["currentHealth"].as_f64().unwrap_or(1000.0);
             let hp_max = lca_data["activePlayer"]["championStats"]["maxHealth"].as_f64().unwrap_or(1000.0);
-            let health_perc = if hp_max > 0.0 { hp_current / hp_max } else { 1.0 };
+            let _health_perc = if hp_max > 0.0 { hp_current / hp_max } else { 1.0 };
 
             let mana_current = lca_data["activePlayer"]["championStats"]["resourceValue"].as_f64().unwrap_or(100.0);
             let mana_max = lca_data["activePlayer"]["championStats"]["resourceMax"].as_f64().unwrap_or(100.0);
-            let mana_perc = if mana_max > 0.0 { mana_current / mana_max } else { 1.0 };
+            let _mana_perc = if mana_max > 0.0 { mana_current / mana_max } else { 1.0 };
 
             // Habilidades do jogador — usadas para dismiss condition de skill level-up tips
             let ability_q = lca_data["activePlayer"]["abilities"]["Q"]["abilityLevel"].as_i64().unwrap_or(0);

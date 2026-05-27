@@ -44,7 +44,6 @@ async fn download_and_install_update(app: tauri::AppHandle) -> Result<(), String
                 .map_err(|e| e.to_string())?;
             println!("[Updater] Atualização instalada. Reiniciando...");
             app.restart();
-            Ok(())
         }
         None => Err("Nenhuma atualização disponível.".into()),
     }
