@@ -81,217 +81,829 @@ const installUpdate = async () => {
 };
 
 const typeLabel: Record<string, string> = { novo: 'NOVO', melhoria: 'MELHORIA', fix: 'FIX' };
-const typeColor: Record<string, string> = { novo: '#4af076', melhoria: '#4ab4f0', fix: '#f0a84a' };
 </script>
 
 <template>
-  <!-- Root: fixed inset-0 garante que preenche o viewport do WebView2 sem depender de parent heights -->
-  <div class="fixed inset-0 flex flex-col overflow-hidden rounded-lg border border-[#c8aa6e] bg-[rgba(4,15,26,0.97)] text-[#f0e6d2] select-none"
-       style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;box-shadow:0 0 30px rgba(0,0,0,0.8),inset 0 0 20px rgba(200,170,110,0.08)">
+  <div class="updater-root">
 
-    <!-- Background radial gradient -->
-    <div class="absolute inset-0 pointer-events-none"
-         style="background:radial-gradient(circle at 50% 0%,rgba(10,36,56,0.85) 0%,rgba(1,10,19,1) 70%);z-index:0"></div>
+    <!-- Background layers -->
+    <div class="bg-base"></div>
+    <div class="bg-glow-top"></div>
+    <div class="bg-glow-bottom"></div>
 
-    <!-- Nexus overlay (animação de instalação) -->
-    <div v-if="status === 'animating'"
-         class="absolute inset-0 flex items-center justify-center pointer-events-none"
-         style="z-index:20">
-      <div class="nexus-crystal"></div>
-      <div class="nexus-shockwave absolute"></div>
-      <div class="nexus-flash absolute inset-0"></div>
-      <div class="nexus-text absolute left-0 right-0 text-center text-[12px] font-bold uppercase tracking-widest text-[#4ab4f0]"
-           style="bottom:50px;text-shadow:0 0 10px rgba(74,180,240,0.8)">
-        Instalando nova versão...
-      </div>
-    </div>
+    <!-- Outer frame border -->
+    <div class="frame-border"></div>
 
-    <!-- Corpo principal -->
-    <div class="relative flex flex-col flex-1 min-h-0 px-6 pt-5 transition-opacity duration-400"
-         style="z-index:1"
-         :style="status === 'animating' ? 'opacity:0;pointer-events:none' : 'opacity:1'">
+    <!-- Corner ornaments (L-shaped gold accents) -->
+    <div class="orn-corner orn-tl"></div>
+    <div class="orn-corner orn-tr"></div>
+    <div class="orn-corner orn-bl"></div>
+    <div class="orn-corner orn-br"></div>
 
-      <!-- Cabeçalho -->
-      <div class="shrink-0 text-center pb-4">
-        <div class="w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-3 text-[22px]"
-             style="background:linear-gradient(135deg,#c8aa6e,#7a5c29);box-shadow:0 4px 15px rgba(200,170,110,0.25)">
-          ⚡
-        </div>
-        <h2 class="text-[18px] font-bold text-[#f0e6d2] m-0 mb-1 tracking-wide">Atualização Disponível</h2>
-        <p class="text-[13px] font-semibold text-[#4af0a0] m-0">Versão {{ version }}</p>
-      </div>
+    <!-- ══════════════════════════════════════════════
+         INSTALL ANIMATION OVERLAY
+         ══════════════════════════════════════════════ -->
+    <transition name="overlay-fade">
+      <div v-if="status === 'animating'" class="install-overlay">
 
-      <!-- Changelog: flex-1 + min-h-0 garante que cresce para preencher o espaço disponível -->
-      <div class="flex-1 min-h-0 flex flex-col rounded overflow-hidden border border-[#c8aa6e]/25 bg-black/40">
-
-        <!-- Header do changelog -->
-        <div class="shrink-0 flex justify-between items-center px-3 py-1.5 text-[11px] font-bold uppercase tracking-widest text-[#c8aa6e] border-b border-[#c8aa6e]/15 bg-[#c8aa6e]/[0.08]">
-          <span>📝 O que há de novo</span>
-          <span v-if="currentRelease" class="text-[10px] font-normal normal-case tracking-normal text-[#3a3a3a]">
-            {{ currentRelease.date }}
-          </span>
+        <!-- Expanding ring pulses -->
+        <div class="pulse-rings">
+          <div class="pulse-ring pr1"></div>
+          <div class="pulse-ring pr2"></div>
+          <div class="pulse-ring pr3"></div>
         </div>
 
-        <!-- Scroll area -->
-        <div class="changelog-scroll flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-1.5 text-[11px]">
+        <!-- Hextech crystal -->
+        <div class="crystal-wrap">
+          <div class="crystal-halo"></div>
+          <svg class="crystal-svg" width="52" height="60" viewBox="0 0 52 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Outer hex -->
+            <polygon points="26,2 50,15 50,45 26,58 2,45 2,15"
+                     stroke="#0397ab" stroke-width="1.5"
+                     fill="rgba(3,151,171,0.07)"/>
+            <!-- Mid hex -->
+            <polygon points="26,10 42,19 42,41 26,50 10,41 10,19"
+                     stroke="#cdfafa" stroke-width="1"
+                     fill="rgba(3,151,171,0.18)"/>
+            <!-- Inner hex (bright core) -->
+            <polygon points="26,19 36,24.5 36,36 26,41.5 16,36 16,24.5"
+                     fill="rgba(205,250,250,0.55)"/>
+            <!-- Connector lines -->
+            <line x1="26" y1="2"  x2="26" y2="10"  stroke="rgba(205,250,250,0.5)" stroke-width="0.75"/>
+            <line x1="50" y1="15" x2="42" y2="19"  stroke="rgba(205,250,250,0.5)" stroke-width="0.75"/>
+            <line x1="50" y1="45" x2="42" y2="41"  stroke="rgba(205,250,250,0.5)" stroke-width="0.75"/>
+            <line x1="26" y1="58" x2="26" y2="50"  stroke="rgba(205,250,250,0.5)" stroke-width="0.75"/>
+            <line x1="2"  y1="45" x2="10" y2="41"  stroke="rgba(205,250,250,0.5)" stroke-width="0.75"/>
+            <line x1="2"  y1="15" x2="10" y2="19"  stroke="rgba(205,250,250,0.5)" stroke-width="0.75"/>
+          </svg>
+          <div class="crystal-flash"></div>
+        </div>
+
+        <p class="install-label">INSTALANDO NOVA VERSÃO...</p>
+
+      </div>
+    </transition>
+
+    <!-- ══════════════════════════════════════════════
+         MAIN CONTENT
+         ══════════════════════════════════════════════ -->
+    <div class="main-content" :class="{ 'content-hidden': status === 'animating' }">
+
+      <!-- ── HEADER ──────────────────────────────── -->
+      <header class="lol-header">
+
+        <!-- Top ornamental divider -->
+        <div class="orn-divider">
+          <div class="orn-div-line"></div>
+          <span class="orn-div-gem">◆</span>
+          <div class="orn-div-line"></div>
+        </div>
+
+        <!-- Icon + titles -->
+        <div class="header-icon-wrap">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <polygon points="16,2 30,9 30,23 16,30 2,23 2,9"
+                     stroke="#c8aa6e" stroke-width="1.5" fill="rgba(200,170,110,0.08)"/>
+            <polygon points="16,7 25,12 25,21 16,26 7,21 7,12"
+                     fill="rgba(200,170,110,0.12)" stroke="#c8aa6e" stroke-width="1"/>
+            <polygon points="16,12 21,15 21,19 16,22 11,19 11,15"
+                     fill="rgba(200,170,110,0.6)"/>
+          </svg>
+        </div>
+
+        <p class="header-app-name">SPELL COACH IA</p>
+        <h1 class="header-title">Atualização Disponível</h1>
+
+        <!-- Version pill (hexagonal) -->
+        <div class="version-pill">
+          <span class="version-pill-label">VERSÃO</span>
+          <span class="version-pill-number">{{ version }}</span>
+        </div>
+
+        <!-- Bottom ornamental divider -->
+        <div class="orn-divider orn-divider-sm">
+          <div class="orn-div-line"></div>
+          <span class="orn-div-gem orn-div-gem-sm">◆</span>
+          <div class="orn-div-line"></div>
+        </div>
+
+      </header>
+
+      <!-- ── CHANGELOG PANEL ────────────────────── -->
+      <div class="changelog-panel">
+
+        <!-- Panel header bar -->
+        <div class="panel-bar">
+          <div class="panel-bar-accent"></div>
+          <span class="panel-bar-title">NOTAS DA VERSÃO</span>
+          <span v-if="currentRelease" class="panel-bar-date">{{ currentRelease.date }}</span>
+        </div>
+
+        <!-- Scrollable content -->
+        <div class="cl-scroll">
 
           <template v-if="currentRelease">
-            <div v-for="(c, i) in currentRelease.changes" :key="i" class="flex items-start gap-1.5">
-              <span class="shrink-0 text-[8px] font-bold px-1 py-px border rounded-sm mt-px"
-                    :style="{ color: typeColor[c.type], borderColor: typeColor[c.type] }">
-                {{ typeLabel[c.type] }}
-              </span>
-              <span class="text-[#c8b89a] leading-snug">{{ c.text }}</span>
+            <div v-for="(c, i) in currentRelease.changes" :key="i" class="note-row">
+              <span class="note-badge" :class="`nb-${c.type}`">{{ typeLabel[c.type] }}</span>
+              <span class="note-text">{{ c.text }}</span>
             </div>
           </template>
 
           <template v-else-if="notesFallbackLines.length">
-            <div v-for="(line, i) in notesFallbackLines" :key="i" class="flex items-start gap-1.5">
-              <span class="shrink-0 text-[8px] font-bold px-1 py-px border rounded-sm mt-px text-[#a09b8c] border-[#a09b8c]">•</span>
-              <span class="text-[#c8b89a] leading-snug">{{ line }}</span>
+            <div v-for="(line, i) in notesFallbackLines" :key="i" class="note-row">
+              <span class="note-bullet">◆</span>
+              <span class="note-text">{{ line }}</span>
             </div>
           </template>
 
-          <div v-else class="text-[#5b5a56]">Pequenas correções e melhorias.</div>
+          <p v-else class="note-empty">Pequenas correções e melhorias.</p>
 
           <template v-if="previousReleases.length">
-            <div class="mt-2 mb-1.5 text-[9px] uppercase tracking-widest text-[#333] border-t border-[#1a1a1a] pt-2">
-              Versões anteriores
+            <div class="prev-sep">
+              <div class="prev-sep-line"></div>
+              <span>VERSÕES ANTERIORES</span>
+              <div class="prev-sep-line"></div>
             </div>
-            <div v-for="rel in previousReleases" :key="rel.version" class="mb-1.5">
-              <div class="text-[10px] font-bold text-[#3a3a3a] mb-1">
-                v{{ rel.version }}
-                <span class="text-[9px] font-normal text-[#2a2a2a] ml-1">{{ rel.date }}</span>
+            <template v-for="rel in previousReleases" :key="rel.version">
+              <div class="prev-version-row">
+                <span class="prev-ver-num">v{{ rel.version }}</span>
+                <span class="prev-ver-date">{{ rel.date }}</span>
               </div>
-              <div v-for="(c, i) in rel.changes" :key="i" class="flex items-start gap-1.5 opacity-45">
-                <span class="shrink-0 text-[7px] font-bold px-1 py-px border rounded-sm mt-px"
-                      :style="{ color: typeColor[c.type], borderColor: typeColor[c.type] }">
-                  {{ typeLabel[c.type] }}
-                </span>
-                <span class="text-[#c8b89a] leading-snug">{{ c.text }}</span>
+              <div v-for="(c, i) in rel.changes" :key="i" class="note-row note-row-dim">
+                <span class="note-badge" :class="`nb-${c.type}`">{{ typeLabel[c.type] }}</span>
+                <span class="note-text">{{ c.text }}</span>
               </div>
-            </div>
+            </template>
           </template>
+
         </div>
       </div>
 
-      <!-- Ações: shrink-0 garante que os botões nunca somem -->
-      <div class="shrink-0 flex gap-3 pt-3.5 pb-5">
+      <!-- ── ACTION FOOTER ─────────────────────── -->
+      <footer class="action-footer">
 
-        <!-- Estado: idle -->
+        <!-- IDLE: two buttons -->
         <template v-if="status === 'idle'">
-          <button
-            class="flex-1 h-11 rounded border border-[#3a3a3a] bg-transparent text-[#7a7570] text-[13px] font-bold uppercase tracking-wide cursor-pointer transition-colors hover:border-[#c8aa6e] hover:text-[#f0e6d2] hover:bg-[#c8aa6e]/[0.08]"
-            @click="closeWindow">
+          <button class="lol-btn lol-btn-ghost" @click="closeWindow">
             Lembrar Depois
           </button>
-          <button
-            class="flex-1 h-11 rounded border border-[#c8aa6e] text-[#f0e6d2] text-[13px] font-bold uppercase tracking-wide cursor-pointer relative overflow-hidden transition-shadow hover:shadow-[0_0_18px_rgba(200,170,110,0.4)]"
-            style="background:linear-gradient(180deg,#1e282d 0%,#010a13 100%);box-shadow:0 0 10px rgba(200,170,110,0.15)"
-            @click="installUpdate">
+          <button class="lol-btn lol-btn-primary" @click="installUpdate">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" class="btn-icon">
+              <path d="M6.5 1v8M3 6l3.5 3.5L10 6M1.5 12h10"
+                    stroke="currentColor" stroke-width="1.5"
+                    stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
             Instalar e Reiniciar
-            <span class="btn-sweep absolute top-0 left-[-100%] w-1/2 h-full pointer-events-none"
-                  style="background:linear-gradient(90deg,transparent,rgba(255,255,255,0.15),transparent);transform:skewX(-20deg)"></span>
           </button>
         </template>
 
-        <!-- Estado: downloading -->
-        <template v-else-if="status === 'downloading'">
-          <div class="w-full flex flex-col items-center gap-2.5">
-            <div class="w-full h-1.5 bg-black/50 border border-[#c8aa6e]/25 rounded-full overflow-hidden relative">
-              <div v-if="hasTotal"
-                   class="h-full transition-[width] duration-200"
-                   style="background:linear-gradient(90deg,#c8aa6e,#f0e84a)"
-                   :style="{ width: downloadPct + '%' }"></div>
-              <div v-else class="progress-indeterminate h-full"></div>
-            </div>
-            <span class="text-[11px] text-[#a09b8c] animate-pulse">
-              {{ hasTotal ? `Baixando... ${downloadPct}%` : 'Baixando recursos hextech...' }}
+        <!-- DOWNLOADING: progress bar -->
+        <div v-else-if="status === 'downloading'" class="dl-wrap">
+          <div class="dl-info-row">
+            <span class="dl-label">
+              {{ hasTotal ? 'Baixando atualização...' : 'Baixando recursos hextech...' }}
             </span>
+            <span v-if="hasTotal" class="dl-pct">{{ downloadPct }}%</span>
           </div>
-        </template>
-
-        <!-- Estado: error -->
-        <template v-else-if="status === 'error'">
-          <div class="w-full flex flex-col items-center gap-1.5">
-            <span class="text-[18px]">⚠️</span>
-            <span class="text-[11px] text-[#ff6b6b] text-center break-words">Falha ao atualizar: {{ errorMsg }}</span>
-            <button
-              class="mt-1 px-5 h-9 rounded border border-[#3a3a3a] bg-transparent text-[#7a7570] text-[11px] font-bold uppercase tracking-wide cursor-pointer hover:border-[#c8aa6e] hover:text-[#f0e6d2] transition-colors"
-              @click="status = 'idle'">
-              Tentar novamente
-            </button>
+          <div class="progress-track">
+            <div v-if="hasTotal"
+                 class="progress-fill"
+                 :style="{ width: downloadPct + '%' }">
+              <div class="progress-shine"></div>
+            </div>
+            <div v-else class="progress-indeterm"></div>
           </div>
-        </template>
+        </div>
 
-      </div>
+        <!-- ERROR state -->
+        <div v-else-if="status === 'error'" class="error-wrap">
+          <span class="error-icon">⚠</span>
+          <p class="error-msg">{{ errorMsg }}</p>
+          <button class="lol-btn lol-btn-ghost error-retry-btn" @click="status = 'idle'">
+            Tentar Novamente
+          </button>
+        </div>
+
+      </footer>
     </div>
+
   </div>
 </template>
 
 <style scoped>
-/* Apenas keyframes e scrollbar — tudo o mais está em classes Tailwind */
 
-/* Scrollbar do changelog */
-.changelog-scroll::-webkit-scrollbar { width: 5px; }
-.changelog-scroll::-webkit-scrollbar-track { background: transparent; }
-.changelog-scroll::-webkit-scrollbar-thumb { background: rgba(200,170,110,0.35); border-radius: 3px; }
+/* ================================================================
+   ROOT
+   ================================================================ */
+.updater-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  color: #f0e6d2;
+  user-select: none;
+}
 
-/* Sweep do botão primário */
-.btn-sweep { animation: sweepAnim 3s infinite; }
-@keyframes sweepAnim {
+/* ================================================================
+   BACKGROUNDS
+   ================================================================ */
+.bg-base {
+  position: absolute;
+  inset: 0;
+  background: #010a13;
+  z-index: 0;
+}
+
+.bg-glow-top {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 90% 45% at 50% -8%,
+    rgba(3, 151, 171, 0.22) 0%,
+    transparent 100%);
+  z-index: 0;
+}
+
+.bg-glow-bottom {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 60% 30% at 50% 108%,
+    rgba(120, 90, 40, 0.12) 0%,
+    transparent 100%);
+  z-index: 0;
+}
+
+/* ================================================================
+   FRAME + CORNER ORNAMENTS
+   ================================================================ */
+.frame-border {
+  position: absolute;
+  inset: 0;
+  border: 1px solid #785a28;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Gold L-shaped corners that overlay the thin frame border */
+.orn-corner {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  z-index: 3;
+  pointer-events: none;
+}
+.orn-corner::before,
+.orn-corner::after {
+  content: '';
+  position: absolute;
+  background: #c8aa6e;
+}
+
+.orn-tl { top: 0; left: 0; }
+.orn-tl::before { top: 0; left: 0; width: 16px; height: 2px; }
+.orn-tl::after  { top: 0; left: 0; width: 2px;  height: 16px; }
+
+.orn-tr { top: 0; right: 0; }
+.orn-tr::before { top: 0; right: 0; width: 16px; height: 2px; }
+.orn-tr::after  { top: 0; right: 0; width: 2px;  height: 16px; }
+
+.orn-bl { bottom: 0; left: 0; }
+.orn-bl::before { bottom: 0; left: 0; width: 16px; height: 2px; }
+.orn-bl::after  { bottom: 0; left: 0; width: 2px;  height: 16px; }
+
+.orn-br { bottom: 0; right: 0; }
+.orn-br::before { bottom: 0; right: 0; width: 16px; height: 2px; }
+.orn-br::after  { bottom: 0; right: 0; width: 2px;  height: 16px; }
+
+/* ================================================================
+   INSTALL OVERLAY
+   ================================================================ */
+.install-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+  background: rgba(1, 10, 19, 0.75);
+  backdrop-filter: blur(4px);
+}
+
+/* Pulse rings */
+.pulse-rings {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0;
+}
+
+.pulse-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid rgba(3, 151, 171, 0.7);
+  animation: ringPulse 2.4s ease-out infinite;
+}
+.pr1 { width: 50px;  height: 50px;  animation-delay: 0s; }
+.pr2 { width: 82px;  height: 82px;  animation-delay: 0.7s; }
+.pr3 { width: 114px; height: 114px; animation-delay: 1.4s; }
+
+/* Crystal */
+.crystal-wrap {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 22px;
+  z-index: 2;
+}
+
+.crystal-halo {
+  position: absolute;
+  inset: -20px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(3, 151, 171, 0.28) 0%, transparent 70%);
+  animation: haloPulse 1.6s ease-in-out infinite alternate;
+}
+
+.crystal-svg {
+  position: relative;
+  z-index: 3;
+  animation: crystalFloat 1.2s ease-in-out infinite alternate,
+             crystalGlow  1.6s ease-in-out infinite;
+  filter: drop-shadow(0 0 10px rgba(3, 151, 171, 0.8));
+}
+
+.crystal-flash {
+  position: absolute;
+  inset: -40px;
+  background: radial-gradient(circle, rgba(3, 205, 250, 0.2) 0%, transparent 65%);
+  border-radius: 50%;
+  z-index: 1;
+  animation: flashPulse 1s ease-in-out infinite alternate;
+}
+
+.install-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  color: #0397ab;
+  text-shadow: 0 0 14px rgba(3, 205, 250, 0.9);
+  animation: labelBlink 1.1s ease-in-out infinite;
+  margin: 0;
+}
+
+@keyframes ringPulse {
+  0%   { transform: scale(0.2); opacity: 0.9; }
+  85%  { opacity: 0.1; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+@keyframes haloPulse  { from { opacity: 0.5; transform: scale(0.85); } to { opacity: 1; transform: scale(1.15); } }
+@keyframes crystalFloat { from { transform: translateY(-5px) rotate(-4deg); } to { transform: translateY(5px) rotate(4deg); } }
+@keyframes crystalGlow  { 0%,100% { filter: drop-shadow(0 0 8px rgba(3,151,171,0.6)); } 50% { filter: drop-shadow(0 0 22px rgba(3,225,255,1)); } }
+@keyframes flashPulse   { from { opacity: 0.2; transform: scale(0.8); } to { opacity: 0.6; transform: scale(1.2); } }
+@keyframes labelBlink   { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+/* Overlay fade transition */
+.overlay-fade-enter-active,
+.overlay-fade-leave-active { transition: opacity 0.4s ease; }
+.overlay-fade-enter-from,
+.overlay-fade-leave-to { opacity: 0; }
+
+/* ================================================================
+   MAIN CONTENT
+   ================================================================ */
+.main-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 0 20px;
+  z-index: 10;
+  transition: opacity 0.4s ease;
+}
+
+.content-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ================================================================
+   HEADER
+   ================================================================ */
+.lol-header {
+  flex-shrink: 0;
+  text-align: center;
+  padding: 16px 0 10px;
+}
+
+/* Ornamental dividers */
+.orn-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.orn-divider-sm {
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+
+.orn-div-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #785a28 40%, #785a28 60%, transparent);
+}
+
+.orn-div-gem {
+  color: #c8aa6e;
+  font-size: 10px;
+  line-height: 1;
+  filter: drop-shadow(0 0 5px rgba(200, 170, 110, 0.7));
+}
+.orn-div-gem-sm { font-size: 7px; }
+
+/* Header icon */
+.header-icon-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 6px;
+  filter: drop-shadow(0 0 8px rgba(200, 170, 110, 0.4));
+}
+
+.header-app-name {
+  font-size: 8px;
+  letter-spacing: 0.38em;
+  color: #785a28;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin: 0 0 5px;
+}
+
+.header-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #c8aa6e;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin: 0 0 10px;
+  text-shadow: 0 0 24px rgba(200, 170, 110, 0.35);
+}
+
+/* Hexagonal version pill */
+.version-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 16px;
+  background: rgba(3, 151, 171, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(3, 151, 171, 0.38);
+  clip-path: polygon(
+    12px 0%,
+    calc(100% - 12px) 0%,
+    100% 50%,
+    calc(100% - 12px) 100%,
+    12px 100%,
+    0% 50%
+  );
+}
+
+.version-pill-label {
+  font-size: 7.5px;
+  letter-spacing: 0.22em;
+  color: #0397ab;
+  font-weight: 700;
+}
+
+.version-pill-number {
+  font-size: 13px;
+  font-weight: 700;
+  color: #cdfafa;
+  text-shadow: 0 0 10px rgba(3, 205, 250, 0.55);
+}
+
+/* ================================================================
+   CHANGELOG PANEL
+   ================================================================ */
+.changelog-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(120, 90, 40, 0.4);
+  background: rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+
+/* Panel header bar */
+.panel-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(120, 90, 40, 0.28);
+  background: rgba(200, 170, 110, 0.045);
+}
+
+.panel-bar-accent {
+  width: 3px;
+  height: 11px;
+  background: linear-gradient(180deg, #c8aa6e, #785a28);
+  flex-shrink: 0;
+}
+
+.panel-bar-title {
+  flex: 1;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  color: #c8aa6e;
+}
+
+.panel-bar-date {
+  font-size: 8.5px;
+  color: #3a3a3a;
+}
+
+/* Scrollable area */
+.cl-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.cl-scroll::-webkit-scrollbar { width: 4px; }
+.cl-scroll::-webkit-scrollbar-track { background: transparent; }
+.cl-scroll::-webkit-scrollbar-thumb { background: rgba(200, 170, 110, 0.28); border-radius: 2px; }
+
+/* Note rows */
+.note-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.note-row-dim { opacity: 0.38; }
+
+/* Hexagonal badges */
+.note-badge {
+  flex-shrink: 0;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  margin-top: 1px;
+  clip-path: polygon(
+    4px 0%, calc(100% - 4px) 0%,
+    100% 50%,
+    calc(100% - 4px) 100%, 4px 100%,
+    0% 50%
+  );
+}
+
+.nb-novo     { background: rgba(74, 240, 118, 0.14); color: #4af076; }
+.nb-melhoria { background: rgba(74, 180, 240, 0.14); color: #4ab4f0; }
+.nb-fix      { background: rgba(240, 168, 74, 0.14);  color: #f0a84a; }
+
+.note-bullet {
+  flex-shrink: 0;
+  font-size: 6px;
+  color: #c8aa6e;
+  margin-top: 3px;
+}
+
+.note-text  { color: #c8b89a; line-height: 1.45; }
+.note-empty { font-size: 11px; color: #3a3a3a; margin: 0; }
+
+/* Previous versions separator */
+.prev-sep {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  color: #2c2c2c;
+  margin: 8px 0 4px;
+}
+.prev-sep-line { flex: 1; height: 1px; background: rgba(44, 44, 44, 0.8); }
+
+.prev-version-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.prev-ver-num  { font-size: 9px; font-weight: 700; color: #3a3a3a; }
+.prev-ver-date { font-size: 8px; color: #2a2a2a; }
+
+/* ================================================================
+   ACTION FOOTER
+   ================================================================ */
+.action-footer {
+  flex-shrink: 0;
+  padding: 11px 0 16px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* ── LOL-STYLE BUTTONS (clip-path cut corners) ── */
+.lol-btn {
+  flex: 1;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  transition: box-shadow 0.18s, filter 0.18s, background 0.18s;
+  clip-path: polygon(
+    8px 0%, calc(100% - 8px) 0%,
+    100% 8px,
+    100% calc(100% - 8px),
+    calc(100% - 8px) 100%, 8px 100%,
+    0% calc(100% - 8px),
+    0% 8px
+  );
+}
+
+.btn-icon {
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+.lol-btn-ghost {
+  background: rgba(0, 0, 0, 0.5);
+  color: #7a7570;
+  box-shadow: inset 0 0 0 1px rgba(120, 90, 40, 0.45);
+}
+
+.lol-btn-ghost:hover {
+  color: #c8aa6e;
+  background: rgba(200, 170, 110, 0.06);
+  box-shadow: inset 0 0 0 1px #c8aa6e;
+}
+
+.lol-btn-primary {
+  background: linear-gradient(180deg,
+    #1c3545 0%,
+    #0d1e2e 45%,
+    #010a13 100%
+  );
+  color: #f0e6d2;
+  box-shadow:
+    inset 0 0 0 1px #785a28,
+    0 0 14px rgba(200, 170, 110, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+
+.lol-btn-primary::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg,
+    transparent,
+    rgba(255, 255, 255, 0.12),
+    transparent
+  );
+  transform: skewX(-20deg);
+  animation: btnSweep 3.5s infinite;
+}
+
+.lol-btn-primary:hover {
+  box-shadow:
+    inset 0 0 0 1px #c8aa6e,
+    0 0 24px rgba(200, 170, 110, 0.25);
+  filter: brightness(1.1);
+}
+
+@keyframes btnSweep {
   0%   { left: -100%; }
-  20%  { left: 200%; }
+  22%  { left: 200%; }
   100% { left: 200%; }
 }
 
-/* Progress bar indeterminado */
-.progress-indeterminate {
-  width: 100%;
-  background: linear-gradient(90deg, transparent, #c8aa6e, transparent);
-  background-size: 200% 100%;
-  animation: indetermAnim 1.5s infinite linear;
+/* ── DOWNLOAD STATE ── */
+.dl-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
+
+.dl-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.dl-label {
+  font-size: 11px;
+  color: #a09b8c;
+  letter-spacing: 0.02em;
+}
+
+.dl-pct {
+  font-size: 13px;
+  font-weight: 700;
+  color: #c8aa6e;
+}
+
+.progress-track {
+  width: 100%;
+  height: 5px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(200, 170, 110, 0.18);
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #785a28 0%, #c8aa6e 80%, #f0d878 100%);
+  box-shadow: 0 0 8px rgba(200, 170, 110, 0.6);
+  transition: width 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-shine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 60%, rgba(255, 255, 255, 0.25) 80%, transparent 100%);
+  animation: shineSweep 1.8s linear infinite;
+}
+
+@keyframes shineSweep {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(200%); }
+}
+
+.progress-indeterm {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, #c8aa6e 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: indetermAnim 1.6s linear infinite;
+}
+
 @keyframes indetermAnim {
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
 
-/* Nexus explosion */
-.nexus-crystal {
-  width: 36px; height: 72px;
-  background: linear-gradient(135deg, #4ab4f0, #0a4682);
-  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-  box-shadow: 0 0 30px #4ab4f0;
-  animation: crystalFloat 1s ease-in-out infinite alternate, crystalShatter 2.5s forwards;
+/* ── ERROR STATE ── */
+.error-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
 }
-.nexus-shockwave {
-  width: 10px; height: 10px;
-  border-radius: 50%; border: 4px solid #4ab4f0;
-  opacity: 0;
-  animation: shockwaveAnim 2.5s forwards;
-}
-.nexus-flash { background: white; opacity: 0; animation: flashAnim 2.5s forwards; }
-.nexus-text { animation: pulseAnim 1s infinite; }
 
-@keyframes crystalFloat { 0% { transform: translateY(-4px); } 100% { transform: translateY(4px); } }
-@keyframes crystalShatter {
-  0%   { transform: scale(1) rotate(0deg);    filter: brightness(1); opacity: 1; }
-  40%  { transform: scale(1.2) rotate(5deg);  filter: brightness(2); opacity: 1; }
-  45%  { transform: scale(1.3) rotate(-5deg); filter: brightness(3); opacity: 1; }
-  50%  { transform: scale(0) rotate(20deg);   opacity: 0; }
-  100% { transform: scale(0); opacity: 0; }
+.error-icon {
+  font-size: 20px;
+  color: #f04a4a;
+  text-shadow: 0 0 10px rgba(240, 74, 74, 0.5);
 }
-@keyframes shockwaveAnim {
-  0%,49% { transform: scale(1);  opacity: 0; }
-  50%     { transform: scale(1);  opacity: 1; border-width: 20px; }
-  70%     { transform: scale(40); opacity: 0; border-width: 1px; }
-  100%    { transform: scale(40); opacity: 0; }
+
+.error-msg {
+  font-size: 10px;
+  color: #f04a4a;
+  text-align: center;
+  margin: 0;
+  word-break: break-word;
+  max-width: 100%;
 }
-@keyframes flashAnim {
-  0%,50% { opacity: 0; }
-  55%,80%{ opacity: 1; }
-  100%   { opacity: 0; }
+
+.error-retry-btn {
+  margin-top: 2px;
+  flex: 0 0 auto;
+  width: auto;
+  padding: 0 20px;
 }
-@keyframes pulseAnim { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
+
 </style>
